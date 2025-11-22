@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.4
+ * @version 0.5
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -58,121 +58,8 @@ function toggleSidePanel(panelId) {
         return;
     }
 
-    const host = document.createElement('div');
-    host.id = panelId;
-    host.style.position = 'fixed';
-    host.style.top = '0';
-    host.style.right = '0';
-    host.style.zIndex = '2147483647';
-    host.style.height = '100vh';
-    host.style.width = '380px';
-
-    const shadowRoot = host.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent = getStyles();
-
-    const panel = document.createElement('section');
-    panel.className = 'gp-panel';
-    panel.innerHTML = `
-        <div class="gp-surface" role="dialog" aria-label="GetPhotos">
-            <header class="gp-header">
-                <div class="gp-title">
-                    <span class="gp-name">GetPhotos</span>
-                    <span class="gp-subtitle">Управление</span>
-                </div>
-                <button class="gp-close" type="button" aria-label="Закрыть панель">×</button>
-            </header>
-            <p class="gp-hint">Выберите действие для текущей страницы.</p>
-            <div class="gp-actions">
-                <button class="gp-primary" type="button">Получить изображения</button>
-            </div>
-            <div class="gp-results" aria-live="polite">
-                <p class="gp-empty">Список изображений появится здесь.</p>
-                <ul class="gp-list gp-hidden"></ul>
-            </div>
-        </div>
-    `;
-
-    shadowRoot.append(style, panel);
-    document.body.appendChild(host);
-
-    const closeButton = panel.querySelector('.gp-close');
-    const collectButton = panel.querySelector('.gp-primary');
-    const emptyState = panel.querySelector('.gp-empty');
-    const list = panel.querySelector('.gp-list');
-
-    closeButton.addEventListener('click', () => host.remove());
-
-    collectButton.addEventListener('click', () => {
-        const links = collectImageLinks();
-        renderLinks(links, { emptyState, list });
-    });
-}
-
-function renderLinks(links, elements) {
-    const { emptyState, list } = elements;
-
-    list.innerHTML = '';
-
-    if (!links.length) {
-        emptyState.textContent = 'На странице не найдено изображений.';
-        emptyState.classList.remove('gp-hidden');
-        list.classList.add('gp-hidden');
-        return;
-    }
-
-    emptyState.classList.add('gp-hidden');
-    list.classList.remove('gp-hidden');
-
-    links.forEach((link) => {
-        const item = document.createElement('li');
-        item.textContent = link;
-        list.appendChild(item);
-    });
-}
-
-function collectImageLinks() {
-    const imageSources = Array.from(document.images)
-        .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
-        .filter(Boolean);
-
-    const anchorImages = Array.from(document.querySelectorAll('a[href]'))
-        .map((link) => link.getAttribute('href'))
-        .filter((href) => isImageLink(href))
-        .map((href) => toAbsoluteUrl(href))
-        .filter(Boolean);
-
-    const links = [...imageSources, ...anchorImages];
-    return Array.from(new Set(links));
-}
-
-function toAbsoluteUrl(href) {
-    if (!href) {
-        return null;
-    }
-
-    try {
-        return new URL(href, location.href).toString();
-    } catch (error) {
-        return null;
-    }
-}
-
-function isImageLink(href) {
-    if (!href) {
-        return false;
-    }
-
-    try {
-        const parsed = new URL(href, location.href);
-        return /\.(png|jpe?g|gif|webp|svg)$/i.test(parsed.pathname);
-    } catch (error) {
-        return false;
-    }
-}
-
-function getStyles() {
-    return `
+    // Helpers are declared inside to avoid ReferenceError when script runs in the page context.
+    const getStyles = () => `
         :host {
             font-family: "Segoe UI", sans-serif;
             color: #1c1c1c;
@@ -285,4 +172,116 @@ function getStyles() {
             display: none;
         }
     `;
+
+    const collectImageLinks = () => {
+        const toAbsoluteUrl = (href) => {
+            if (!href) {
+                return null;
+            }
+
+            try {
+                return new URL(href, location.href).toString();
+            } catch (error) {
+                return null;
+            }
+        };
+
+        const isImageLink = (href) => {
+            if (!href) {
+                return false;
+            }
+
+            try {
+                const parsed = new URL(href, location.href);
+                return /\.(png|jpe?g|gif|webp|svg)$/i.test(parsed.pathname);
+            } catch (error) {
+                return false;
+            }
+        };
+
+        const imageSources = Array.from(document.images)
+            .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
+            .filter(Boolean);
+
+        const anchorImages = Array.from(document.querySelectorAll('a[href]'))
+            .map((link) => link.getAttribute('href'))
+            .filter((href) => isImageLink(href))
+            .map((href) => toAbsoluteUrl(href))
+            .filter(Boolean);
+
+        const links = [...imageSources, ...anchorImages];
+        return Array.from(new Set(links));
+    };
+
+    const renderLinks = (links, elements) => {
+        const { emptyState, list } = elements;
+
+        list.innerHTML = '';
+
+        if (!links.length) {
+            emptyState.textContent = 'На странице не найдено изображений.';
+            emptyState.classList.remove('gp-hidden');
+            list.classList.add('gp-hidden');
+            return;
+        }
+
+        emptyState.classList.add('gp-hidden');
+        list.classList.remove('gp-hidden');
+
+        links.forEach((link) => {
+            const item = document.createElement('li');
+            item.textContent = link;
+            list.appendChild(item);
+        });
+    };
+
+    const host = document.createElement('div');
+    host.id = panelId;
+    host.style.position = 'fixed';
+    host.style.top = '0';
+    host.style.right = '0';
+    host.style.zIndex = '2147483647';
+    host.style.height = '100vh';
+    host.style.width = '380px';
+
+    const shadowRoot = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = getStyles();
+
+    const panel = document.createElement('section');
+    panel.className = 'gp-panel';
+    panel.innerHTML = `
+        <div class="gp-surface" role="dialog" aria-label="GetPhotos">
+            <header class="gp-header">
+                <div class="gp-title">
+                    <span class="gp-name">GetPhotos</span>
+                    <span class="gp-subtitle">Управление</span>
+                </div>
+                <button class="gp-close" type="button" aria-label="Закрыть панель">×</button>
+            </header>
+            <p class="gp-hint">Выберите действие для текущей страницы.</p>
+            <div class="gp-actions">
+                <button class="gp-primary" type="button">Получить изображения</button>
+            </div>
+            <div class="gp-results" aria-live="polite">
+                <p class="gp-empty">Список изображений появится здесь.</p>
+                <ul class="gp-list gp-hidden"></ul>
+            </div>
+        </div>
+    `;
+
+    shadowRoot.append(style, panel);
+    document.body.appendChild(host);
+
+    const closeButton = panel.querySelector('.gp-close');
+    const collectButton = panel.querySelector('.gp-primary');
+    const emptyState = panel.querySelector('.gp-empty');
+    const list = panel.querySelector('.gp-list');
+
+    closeButton.addEventListener('click', () => host.remove());
+
+    collectButton.addEventListener('click', () => {
+        const links = collectImageLinks();
+        renderLinks(links, { emptyState, list });
+    });
 }
