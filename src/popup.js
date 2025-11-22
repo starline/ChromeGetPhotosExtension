@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.4
+ * @version 0.5
  */
 
 const selectors = {
@@ -61,41 +61,7 @@ function renderImages(links) {
     imageList.classList.remove('hidden');
 
     links.forEach((link) => {
-        const item = document.createElement('li');
-        item.classList.add('image-item');
-
-        const anchor = document.createElement('a');
-        anchor.href = link;
-        anchor.target = '_blank';
-        anchor.rel = 'noopener noreferrer';
-        anchor.textContent = link;
-        anchor.classList.add('image-item__link');
-
-        const preview = document.createElement('img');
-        preview.src = link;
-        preview.alt = 'Превью изображения';
-        preview.width = 100;
-        preview.height = 100;
-        preview.loading = 'lazy';
-        preview.classList.add('image-item__preview');
-
-        const copyButton = document.createElement('button');
-        copyButton.type = 'button';
-        copyButton.classList.add('secondary');
-        copyButton.textContent = 'Копировать';
-        copyButton.addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(link);
-                copyButton.textContent = 'Скопировано';
-                setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
-            } catch (error) {
-                console.error('GetPhotos: unable to copy link', error);
-                copyButton.textContent = 'Ошибка';
-                setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
-            }
-        });
-
-        item.append(anchor, preview, copyButton);
+        const item = createImageItem(link);
         imageList.appendChild(item);
     });
 }
@@ -104,6 +70,166 @@ function renderEmpty(message) {
     emptyState.textContent = message;
     emptyState.classList.remove('hidden');
     imageList.classList.add('hidden');
+}
+
+function createImageItem(link) {
+    const item = document.createElement('li');
+    item.classList.add('image-item');
+
+    const preview = document.createElement('img');
+    preview.src = link;
+    preview.alt = 'Превью изображения';
+    preview.width = 100;
+    preview.height = 100;
+    preview.loading = 'lazy';
+    preview.classList.add('image-item__preview');
+
+    const content = document.createElement('div');
+    content.classList.add('image-item__content');
+
+    const meta = document.createElement('div');
+    meta.classList.add('image-item__meta');
+    meta.textContent = 'Загружаем информацию...';
+
+    const actions = document.createElement('div');
+    actions.classList.add('image-item__actions');
+
+    const copyButton = createCopyButton(link);
+    const openButton = createOpenButton(link);
+
+    actions.append(copyButton, openButton);
+    content.append(meta, actions);
+    item.append(preview, content);
+
+    hydrateMeta(link, meta);
+
+    return item;
+}
+
+function createCopyButton(link) {
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.classList.add('secondary');
+    copyButton.textContent = 'Копировать';
+    copyButton.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            copyButton.textContent = 'Скопировано';
+            setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
+        } catch (error) {
+            console.error('GetPhotos: unable to copy link', error);
+            copyButton.textContent = 'Ошибка';
+            setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
+        }
+    });
+
+    return copyButton;
+}
+
+function createOpenButton(link) {
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.classList.add('primary');
+    openButton.textContent = 'Открыть';
+    openButton.addEventListener('click', () => {
+        try {
+            window.open(link, '_blank', 'noopener');
+        } catch (error) {
+            console.error('GetPhotos: unable to open image', error);
+        }
+    });
+
+    return openButton;
+}
+
+async function hydrateMeta(link, metaElement) {
+    try {
+        const details = await loadImageDetails(link);
+        metaElement.textContent = formatMeta(details);
+    } catch (error) {
+        console.error('GetPhotos: unable to load image details', error);
+        metaElement.textContent = 'Не удалось получить информацию об изображении';
+    }
+}
+
+async function loadImageDetails(link) {
+    const [dimensions, sizeKb] = await Promise.all([
+        getImageDimensions(link),
+        getImageSize(link)
+    ]);
+
+    return {
+        ...dimensions,
+        sizeKb,
+        extension: extractExtension(link)
+    };
+}
+
+function extractExtension(link) {
+    try {
+        const { pathname } = new URL(link);
+        const parts = pathname.split('.');
+        if (parts.length < 2) {
+            return null;
+        }
+
+        const lastPart = parts.pop();
+        if (!lastPart || lastPart.includes('/')) {
+            return null;
+        }
+
+        const extension = lastPart.split(/[#?]/)[0];
+        return extension ? extension.toLowerCase() : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function formatMeta({ width, height, extension, sizeKb }) {
+    const dimensions = width && height ? `${width}x${height}px` : 'Размер неизвестен';
+    const format = extension ? `.${extension}` : 'Формат неизвестен';
+    const size = Number.isFinite(sizeKb) ? `${sizeKb} KB` : 'Размер файла неизвестен';
+
+    return `${dimensions} · ${format} · ${size}`;
+}
+
+function getImageDimensions(link) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        };
+        img.onerror = () => resolve({ width: null, height: null });
+        img.src = link;
+    });
+}
+
+async function getImageSize(link) {
+    try {
+        const headResponse = await fetch(link, { method: 'HEAD' });
+        const contentLength = headResponse.headers.get('content-length');
+        const parsedLength = Number(contentLength);
+
+        if (Number.isFinite(parsedLength) && parsedLength > 0) {
+            const sizeKb = Math.max(1, Math.round(parsedLength / 1024));
+            return sizeKb;
+        }
+    } catch (error) {
+        console.warn('GetPhotos: unable to fetch HEAD for size', error);
+    }
+
+    try {
+        const response = await fetch(link);
+        if (!response.ok) {
+            return null;
+        }
+
+        const blob = await response.blob();
+        return Math.max(1, Math.round(blob.size / 1024));
+    } catch (error) {
+        console.warn('GetPhotos: unable to fetch file for size', error);
+        return null;
+    }
 }
 
 async function getActiveTab() {
