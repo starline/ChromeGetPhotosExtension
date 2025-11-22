@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.3
+ * @version 0.4
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -21,7 +21,8 @@ chrome.action.onClicked.addListener(async (tab) => {
     try {
         await chrome.scripting.executeScript({
             target: { tabId: tab.id },
-            func: toggleSidePanel
+            func: toggleSidePanel,
+            args: [PANEL_ID]
         });
     } catch (error) {
         console.error('GetPhotos: failed to toggle panel', error);
@@ -50,15 +51,15 @@ function isServicePage(url) {
     }
 }
 
-function toggleSidePanel() {
-    const existing = document.getElementById(PANEL_ID);
+function toggleSidePanel(panelId) {
+    const existing = document.getElementById(panelId);
     if (existing) {
         existing.remove();
         return;
     }
 
     const host = document.createElement('div');
-    host.id = PANEL_ID;
+    host.id = panelId;
     host.style.position = 'fixed';
     host.style.top = '0';
     host.style.right = '0';
