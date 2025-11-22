@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.2
+ * @version 0.3
  */
 
 const selectors = {
@@ -62,7 +62,24 @@ function renderImages(links) {
 
     links.forEach((link) => {
         const item = document.createElement('li');
-        item.textContent = link;
+        item.classList.add('image-item');
+
+        const preview = document.createElement('img');
+        preview.src = link;
+        preview.alt = 'Превью изображения';
+        preview.width = 100;
+        preview.height = 100;
+        preview.loading = 'lazy';
+        preview.classList.add('image-item__preview');
+
+        const anchor = document.createElement('a');
+        anchor.href = link;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.textContent = link;
+        anchor.classList.add('image-item__link');
+
+        item.append(preview, anchor);
         imageList.appendChild(item);
     });
 }
