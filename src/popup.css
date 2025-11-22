@@ -1,4 +1,4 @@
-/* @version 0.2 */
+/* @version 0.3 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -49,6 +49,13 @@ button.ghost {
     border: none;
     font-size: 18px;
     padding: 4px 8px;
+}
+
+button.secondary {
+    background: #ffffff;
+    color: #0078d4;
+    border-color: #d0d0d0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 
 dialog {
@@ -119,6 +126,7 @@ dialog {
 .image-item__link {
     word-break: break-all;
     font-size: 13px;
+    flex: 1;
 }
 
 .hidden {

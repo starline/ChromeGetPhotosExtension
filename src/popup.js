@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.3
+ * @version 0.4
  */
 
 const selectors = {
@@ -64,6 +64,13 @@ function renderImages(links) {
         const item = document.createElement('li');
         item.classList.add('image-item');
 
+        const anchor = document.createElement('a');
+        anchor.href = link;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.textContent = link;
+        anchor.classList.add('image-item__link');
+
         const preview = document.createElement('img');
         preview.src = link;
         preview.alt = 'Превью изображения';
@@ -72,14 +79,23 @@ function renderImages(links) {
         preview.loading = 'lazy';
         preview.classList.add('image-item__preview');
 
-        const anchor = document.createElement('a');
-        anchor.href = link;
-        anchor.target = '_blank';
-        anchor.rel = 'noopener noreferrer';
-        anchor.textContent = link;
-        anchor.classList.add('image-item__link');
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.classList.add('secondary');
+        copyButton.textContent = 'Копировать';
+        copyButton.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(link);
+                copyButton.textContent = 'Скопировано';
+                setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
+            } catch (error) {
+                console.error('GetPhotos: unable to copy link', error);
+                copyButton.textContent = 'Ошибка';
+                setTimeout(() => (copyButton.textContent = 'Копировать'), 1500);
+            }
+        });
 
-        item.append(preview, anchor);
+        item.append(anchor, preview, copyButton);
         imageList.appendChild(item);
     });
 }
