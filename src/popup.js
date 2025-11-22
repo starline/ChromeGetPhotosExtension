@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.1
+ * @version 0.2
  */
 
 const selectors = {
@@ -80,13 +80,40 @@ async function getActiveTab() {
 
 function collectImageLinks() {
     const imageSources = Array.from(document.images)
-        .map((img) => img.currentSrc || img.src)
+        .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
         .filter(Boolean);
 
     const anchorImages = Array.from(document.querySelectorAll('a[href]'))
-        .map((link) => link.href)
-        .filter((href) => /\.(png|jpe?g|gif|webp|svg)$/i.test(new URL(href, location.href).pathname));
+        .map((link) => link.getAttribute('href'))
+        .filter((href) => isImageLink(href))
+        .map((href) => toAbsoluteUrl(href))
+        .filter(Boolean);
 
-    const links = [...imageSources, ...anchorImages].map((href) => new URL(href, location.href).toString());
+    const links = [...imageSources, ...anchorImages];
     return Array.from(new Set(links));
+}
+
+function toAbsoluteUrl(href) {
+    if (!href) {
+        return null;
+    }
+
+    try {
+        return new URL(href, location.href).toString();
+    } catch (error) {
+        return null;
+    }
+}
+
+function isImageLink(href) {
+    if (!href) {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(href, location.href);
+        return /\.(png|jpe?g|gif|webp|svg)$/i.test(parsed.pathname);
+    } catch (error) {
+        return false;
+    }
 }
