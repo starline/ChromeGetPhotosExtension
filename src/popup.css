@@ -1,4 +1,4 @@
-/* @version 0.1 */
+/* @version 0.2 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -93,14 +93,30 @@ dialog {
 }
 
 #imageList {
-    padding-left: 20px;
+    list-style: none;
+    padding-left: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-#imageList li {
+.image-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.image-item__preview {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #e3e3e3;
+    flex-shrink: 0;
+}
+
+.image-item__link {
     word-break: break-all;
     font-size: 13px;
 }
