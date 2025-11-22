@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.7
+ * @version 0.8
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -201,14 +201,8 @@ function toggleSidePanel(panelId) {
 
         .gp-item {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 12px;
-        }
-
-        .gp-link {
-            word-break: break-all;
-            flex: 1;
-            color: #0078d4;
         }
 
         .gp-preview {
@@ -218,6 +212,24 @@ function toggleSidePanel(panelId) {
             border: 1px solid #e3e3e3;
             border-radius: 8px;
             flex-shrink: 0;
+        }
+
+        .gp-content {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .gp-meta {
+            font-size: 13px;
+            color: #666666;
+        }
+
+        .gp-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .gp-hidden {
@@ -269,13 +281,6 @@ function toggleSidePanel(panelId) {
         const item = document.createElement('li');
         item.className = 'gp-item';
 
-        const anchor = document.createElement('a');
-        anchor.href = link;
-        anchor.target = '_blank';
-        anchor.rel = 'noopener noreferrer';
-        anchor.textContent = link;
-        anchor.className = 'gp-link';
-
         const preview = document.createElement('img');
         preview.src = link;
         preview.alt = 'Превью изображения';
@@ -283,6 +288,16 @@ function toggleSidePanel(panelId) {
         preview.height = 100;
         preview.loading = 'lazy';
         preview.className = 'gp-preview';
+
+        const content = document.createElement('div');
+        content.className = 'gp-content';
+
+        const meta = document.createElement('div');
+        meta.className = 'gp-meta';
+        meta.textContent = 'Загружаем информацию...';
+
+        const actions = document.createElement('div');
+        actions.className = 'gp-actions';
 
         const copyButton = document.createElement('button');
         copyButton.type = 'button';
@@ -298,8 +313,115 @@ function toggleSidePanel(panelId) {
             }
         });
 
-        item.append(anchor, preview, copyButton);
+        const openButton = document.createElement('button');
+        openButton.type = 'button';
+        openButton.className = 'gp-primary';
+        openButton.textContent = 'Открыть';
+        openButton.addEventListener('click', () => {
+            try {
+                window.open(link, '_blank', 'noopener');
+            } catch (error) {
+                console.error('GetPhotos: unable to open image', error);
+            }
+        });
+
+        actions.append(copyButton, openButton);
+        content.append(meta, actions);
+        item.append(preview, content);
+
+        hydrateMeta(link, meta);
+
         return item;
+    };
+
+    const hydrateMeta = async (link, metaElement) => {
+        try {
+            const details = await loadImageDetails(link);
+            metaElement.textContent = formatMeta(details);
+        } catch (error) {
+            console.error('GetPhotos: unable to load image details', error);
+            metaElement.textContent = 'Не удалось получить информацию об изображении';
+        }
+    };
+
+    const loadImageDetails = async (link) => {
+        const [dimensions, sizeKb] = await Promise.all([
+            getImageDimensions(link),
+            getImageSize(link)
+        ]);
+
+        return {
+            ...dimensions,
+            sizeKb,
+            extension: extractExtension(link)
+        };
+    };
+
+    const extractExtension = (link) => {
+        try {
+            const { pathname } = new URL(link);
+            const parts = pathname.split('.');
+            if (parts.length < 2) {
+                return null;
+            }
+
+            const lastPart = parts.pop();
+            if (!lastPart || lastPart.includes('/')) {
+                return null;
+            }
+
+            const extension = lastPart.split(/[?#]/)[0];
+            return extension ? extension.toLowerCase() : null;
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const formatMeta = ({ width, height, extension, sizeKb }) => {
+        const dimensions = width && height ? `${width}x${height}px` : 'Размер неизвестен';
+        const format = extension ? `.${extension}` : 'Формат неизвестен';
+        const size = Number.isFinite(sizeKb) ? `${sizeKb} KB` : 'Размер файла неизвестен';
+
+        return `${dimensions} · ${format} · ${size}`;
+    };
+
+    const getImageDimensions = (link) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            };
+            img.onerror = () => resolve({ width: null, height: null });
+            img.src = link;
+        });
+    };
+
+    const getImageSize = async (link) => {
+        try {
+            const headResponse = await fetch(link, { method: 'HEAD' });
+            const contentLength = headResponse.headers.get('content-length');
+            const parsedLength = Number(contentLength);
+
+            if (Number.isFinite(parsedLength) && parsedLength > 0) {
+                const sizeKb = Math.max(1, Math.round(parsedLength / 1024));
+                return sizeKb;
+            }
+        } catch (error) {
+            console.warn('GetPhotos: unable to fetch HEAD for size', error);
+        }
+
+        try {
+            const response = await fetch(link);
+            if (!response.ok) {
+                return null;
+            }
+
+            const blob = await response.blob();
+            return Math.max(1, Math.round(blob.size / 1024));
+        } catch (error) {
+            console.warn('GetPhotos: unable to fetch file for size', error);
+            return null;
+        }
     };
 
     const renderLinks = (links, elements) => {
