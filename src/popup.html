@@ -1,0 +1,33 @@
+<!-- @version 0.1 -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>GetPhotos</title>
+    <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+    <main class="popup">
+        <h1 class="title">GetPhotos</h1>
+        <button id="openDialog" class="primary">Открыть диалог</button>
+
+        <dialog id="controlsDialog">
+            <div class="dialog__header">
+                <h2>Управление</h2>
+                <button id="closeDialog" class="ghost" aria-label="Закрыть">×</button>
+            </div>
+            <div class="dialog__body">
+                <p class="hint">Выберите действие для текущей страницы.</p>
+                <div class="actions">
+                    <button id="collectImages" class="primary">Получить изображения</button>
+                </div>
+                <div class="results" aria-live="polite">
+                    <p id="emptyState">Список изображений появится здесь.</p>
+                    <ul id="imageList" class="hidden"></ul>
+                </div>
+            </div>
+        </dialog>
+    </main>
+    <script src="popup.js"></script>
+</body>
+</html>
