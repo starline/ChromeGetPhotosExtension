@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.6
+ * @version 0.7
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -190,13 +190,34 @@ function toggleSidePanel(panelId) {
         }
 
         .gp-list {
-            padding-left: 20px;
+            list-style: none;
+            padding: 0;
             margin: 0;
             display: flex;
             flex-direction: column;
             gap: 8px;
             font-size: 13px;
+        }
+
+        .gp-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .gp-link {
             word-break: break-all;
+            flex: 1;
+            color: #0078d4;
+        }
+
+        .gp-preview {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border: 1px solid #e3e3e3;
+            border-radius: 8px;
+            flex-shrink: 0;
         }
 
         .gp-hidden {
@@ -244,8 +265,45 @@ function toggleSidePanel(panelId) {
         return Array.from(new Set(links));
     };
 
+    const createLinkRow = (link) => {
+        const item = document.createElement('li');
+        item.className = 'gp-item';
+
+        const anchor = document.createElement('a');
+        anchor.href = link;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.textContent = link;
+        anchor.className = 'gp-link';
+
+        const preview = document.createElement('img');
+        preview.src = link;
+        preview.alt = 'Превью изображения';
+        preview.width = 100;
+        preview.height = 100;
+        preview.loading = 'lazy';
+        preview.className = 'gp-preview';
+
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'gp-secondary';
+        copyButton.textContent = 'Копировать';
+        copyButton.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(link);
+                updateStatus(COPY_SUCCESS_MESSAGE);
+            } catch (error) {
+                console.error('GetPhotos: unable to copy link', error);
+                updateStatus(COPY_ERROR_MESSAGE, true);
+            }
+        });
+
+        item.append(anchor, preview, copyButton);
+        return item;
+    };
+
     const renderLinks = (links, elements) => {
-        const { emptyState, list, copyButton } = elements;
+        const { emptyState, list } = elements;
 
         list.innerHTML = '';
 
@@ -253,19 +311,13 @@ function toggleSidePanel(panelId) {
             emptyState.textContent = 'На странице не найдено изображений.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
-            copyButton.disabled = true;
             return;
         }
 
         emptyState.classList.add('gp-hidden');
         list.classList.remove('gp-hidden');
-        copyButton.disabled = false;
 
-        links.forEach((link) => {
-            const item = document.createElement('li');
-            item.textContent = link;
-            list.appendChild(item);
-        });
+        links.forEach((link) => list.appendChild(createLinkRow(link)));
     };
 
     const updateStatus = (message, isError = false) => {
@@ -302,7 +354,6 @@ function toggleSidePanel(panelId) {
             <p class="gp-hint">Выберите действие для текущей страницы.</p>
             <div class="gp-actions">
                 <button class="gp-primary" type="button">Получить изображения</button>
-                <button class="gp-secondary" type="button" disabled>Скопировать ссылки</button>
             </div>
             <p class="gp-status gp-hidden" aria-live="polite"></p>
             <div class="gp-results" aria-live="polite">
@@ -317,7 +368,6 @@ function toggleSidePanel(panelId) {
 
     const closeButton = panel.querySelector('.gp-close');
     const collectButton = panel.querySelector('.gp-primary');
-    const copyButton = panel.querySelector('.gp-secondary');
     const emptyState = panel.querySelector('.gp-empty');
     const list = panel.querySelector('.gp-list');
     let lastLinks = [];
@@ -327,21 +377,6 @@ function toggleSidePanel(panelId) {
     collectButton.addEventListener('click', () => {
         lastLinks = collectImageLinks();
         updateStatus('');
-        renderLinks(lastLinks, { emptyState, list, copyButton });
-    });
-
-    copyButton.addEventListener('click', async () => {
-        if (!lastLinks.length) {
-            updateStatus('Нет ссылок для копирования.', true);
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(lastLinks.join('\n'));
-            updateStatus(COPY_SUCCESS_MESSAGE);
-        } catch (error) {
-            console.error('GetPhotos: unable to copy links', error);
-            updateStatus(COPY_ERROR_MESSAGE, true);
-        }
+        renderLinks(lastLinks, { emptyState, list });
     });
 }
