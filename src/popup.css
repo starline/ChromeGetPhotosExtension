@@ -1,4 +1,4 @@
-/* @version 0.3 */
+/* @version 0.4 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -110,8 +110,8 @@ dialog {
 
 .image-item {
     display: flex;
-    align-items: center;
     gap: 12px;
+    align-items: flex-start;
 }
 
 .image-item__preview {
@@ -123,10 +123,22 @@ dialog {
     flex-shrink: 0;
 }
 
-.image-item__link {
-    word-break: break-all;
-    font-size: 13px;
+.image-item__content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     flex: 1;
+}
+
+.image-item__meta {
+    font-size: 13px;
+    color: #666666;
+}
+
+.image-item__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .hidden {
