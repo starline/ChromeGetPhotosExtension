@@ -1,20 +1,54 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.1
+ * @version 0.2
  */
 
 const PANEL_ID = 'getphotos-panel-root';
+const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
 
 chrome.action.onClicked.addListener(async (tab) => {
-    if (!tab?.id) {
+    if (!tab?.id || !tab.url) {
         return;
     }
 
-    await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: toggleSidePanel
-    });
+    await resetBadge(tab.id);
+
+    if (isServicePage(tab.url)) {
+        await warnServicePage(tab.id);
+        return;
+    }
+
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: toggleSidePanel
+        });
+    } catch (error) {
+        console.error('GetPhotos: failed to toggle panel', error);
+        await warnServicePage(tab.id);
+    }
 });
+
+async function warnServicePage(tabId) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#d93025', tabId });
+    await chrome.action.setBadgeText({ text: '!', tabId });
+    await chrome.action.setTitle({ title: SERVICE_PAGE_WARNING, tabId });
+}
+
+async function resetBadge(tabId) {
+    await chrome.action.setBadgeText({ text: '', tabId });
+    await chrome.action.setTitle({ title: 'GetPhotos', tabId });
+}
+
+function isServicePage(url) {
+    try {
+        const parsed = new URL(url);
+        const blockedProtocols = new Set(['chrome:', 'edge:', 'about:', 'devtools:', 'chrome-extension:']);
+        return blockedProtocols.has(parsed.protocol);
+    } catch (error) {
+        return true;
+    }
+}
 
 function toggleSidePanel() {
     const existing = document.getElementById(PANEL_ID);
