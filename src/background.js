@@ -1,10 +1,12 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.5
+ * @version 0.6
  */
 
 const PANEL_ID = 'getphotos-panel-root';
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
+const COPY_SUCCESS_MESSAGE = 'Ссылки скопированы в буфер обмена.';
+const COPY_ERROR_MESSAGE = 'Не удалось скопировать ссылки.';
 
 chrome.action.onClicked.addListener(async (tab) => {
     if (!tab?.id || !tab.url) {
@@ -146,6 +148,35 @@ function toggleSidePanel(panelId) {
             transform: translateY(1px);
         }
 
+        .gp-secondary {
+            padding: 10px 14px;
+            font-size: 14px;
+            border-radius: 8px;
+            border: 1px solid #d0d0d0;
+            background: #ffffff;
+            color: #0078d4;
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+        }
+
+        .gp-secondary:disabled {
+            border-color: #e3e3e3;
+            color: #a3a3a3;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .gp-status {
+            margin: 0;
+            color: #4f4f4f;
+            font-size: 13px;
+        }
+
+        .gp-status--error {
+            color: #d93025;
+        }
+
         .gp-results {
             border: 1px solid #e3e3e3;
             border-radius: 10px;
@@ -214,7 +245,7 @@ function toggleSidePanel(panelId) {
     };
 
     const renderLinks = (links, elements) => {
-        const { emptyState, list } = elements;
+        const { emptyState, list, copyButton } = elements;
 
         list.innerHTML = '';
 
@@ -222,17 +253,26 @@ function toggleSidePanel(panelId) {
             emptyState.textContent = 'На странице не найдено изображений.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
+            copyButton.disabled = true;
             return;
         }
 
         emptyState.classList.add('gp-hidden');
         list.classList.remove('gp-hidden');
+        copyButton.disabled = false;
 
         links.forEach((link) => {
             const item = document.createElement('li');
             item.textContent = link;
             list.appendChild(item);
         });
+    };
+
+    const updateStatus = (message, isError = false) => {
+        const status = panel.querySelector('.gp-status');
+        status.textContent = message;
+        status.classList.toggle('gp-hidden', !message);
+        status.classList.toggle('gp-status--error', isError);
     };
 
     const host = document.createElement('div');
@@ -262,7 +302,9 @@ function toggleSidePanel(panelId) {
             <p class="gp-hint">Выберите действие для текущей страницы.</p>
             <div class="gp-actions">
                 <button class="gp-primary" type="button">Получить изображения</button>
+                <button class="gp-secondary" type="button" disabled>Скопировать ссылки</button>
             </div>
+            <p class="gp-status gp-hidden" aria-live="polite"></p>
             <div class="gp-results" aria-live="polite">
                 <p class="gp-empty">Список изображений появится здесь.</p>
                 <ul class="gp-list gp-hidden"></ul>
@@ -275,13 +317,31 @@ function toggleSidePanel(panelId) {
 
     const closeButton = panel.querySelector('.gp-close');
     const collectButton = panel.querySelector('.gp-primary');
+    const copyButton = panel.querySelector('.gp-secondary');
     const emptyState = panel.querySelector('.gp-empty');
     const list = panel.querySelector('.gp-list');
+    let lastLinks = [];
 
     closeButton.addEventListener('click', () => host.remove());
 
     collectButton.addEventListener('click', () => {
-        const links = collectImageLinks();
-        renderLinks(links, { emptyState, list });
+        lastLinks = collectImageLinks();
+        updateStatus('');
+        renderLinks(lastLinks, { emptyState, list, copyButton });
+    });
+
+    copyButton.addEventListener('click', async () => {
+        if (!lastLinks.length) {
+            updateStatus('Нет ссылок для копирования.', true);
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(lastLinks.join('\n'));
+            updateStatus(COPY_SUCCESS_MESSAGE);
+        } catch (error) {
+            console.error('GetPhotos: unable to copy links', error);
+            updateStatus(COPY_ERROR_MESSAGE, true);
+        }
     });
 }
