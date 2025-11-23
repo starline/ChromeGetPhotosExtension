@@ -1,4 +1,4 @@
-<!-- @version 0.1 -->
+<!-- @version 0.2 -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -17,11 +17,11 @@
                 <button id="closeDialog" class="ghost" aria-label="Закрыть">×</button>
             </div>
             <div class="dialog__body">
-                <p class="hint">Выберите действие для текущей страницы.</p>
                 <div class="actions">
                     <button id="collectImages" class="primary">Получить изображения</button>
                 </div>
                 <div class="results" aria-live="polite">
+                    <p id="imageCount" class="results__count hidden"></p>
                     <p id="emptyState">Список изображений появится здесь.</p>
                     <ul id="imageList" class="hidden"></ul>
                 </div>

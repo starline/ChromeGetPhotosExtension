@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.5
+ * @version 0.6
  */
 
 const selectors = {
@@ -9,7 +9,8 @@ const selectors = {
     dialog: 'controlsDialog',
     collectImages: 'collectImages',
     imageList: 'imageList',
-    emptyState: 'emptyState'
+    emptyState: 'emptyState',
+    imageCount: 'imageCount'
 };
 
 const dialog = document.getElementById(selectors.dialog);
@@ -18,6 +19,7 @@ const closeButton = document.getElementById(selectors.closeDialog);
 const collectButton = document.getElementById(selectors.collectImages);
 const imageList = document.getElementById(selectors.imageList);
 const emptyState = document.getElementById(selectors.emptyState);
+const imageCount = document.getElementById(selectors.imageCount);
 
 openButton.addEventListener('click', () => {
     dialog.showModal();
@@ -31,6 +33,8 @@ dialog.addEventListener('close', () => {
     imageList.innerHTML = '';
     imageList.classList.add('hidden');
     emptyState.classList.remove('hidden');
+    imageCount.textContent = '';
+    imageCount.classList.add('hidden');
 });
 
 collectButton.addEventListener('click', async () => {
@@ -59,6 +63,7 @@ function renderImages(links) {
 
     emptyState.classList.add('hidden');
     imageList.classList.remove('hidden');
+    renderCount(links.length);
 
     links.forEach((link) => {
         const item = createImageItem(link);
@@ -70,6 +75,28 @@ function renderEmpty(message) {
     emptyState.textContent = message;
     emptyState.classList.remove('hidden');
     imageList.classList.add('hidden');
+    imageCount.textContent = '';
+    imageCount.classList.add('hidden');
+}
+
+function renderCount(count) {
+    imageCount.textContent = formatImageCount(count);
+    imageCount.classList.remove('hidden');
+}
+
+function formatImageCount(count) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+
+    if (mod10 === 1 && mod100 !== 11) {
+        return `Найдено ${count} изображение`;
+    }
+
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+        return `Найдено ${count} изображения`;
+    }
+
+    return `Найдено ${count} изображений`;
 }
 
 function createImageItem(link) {
