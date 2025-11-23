@@ -1,6 +1,6 @@
 /**
  * Popup logic for GetPhotos dialog controls.
- * @version 0.6
+ * @version 0.7
  */
 
 const selectors = {
@@ -10,7 +10,8 @@ const selectors = {
     collectImages: 'collectImages',
     imageList: 'imageList',
     emptyState: 'emptyState',
-    imageCount: 'imageCount'
+    imageCount: 'imageCount',
+    minWidth: 'minWidth'
 };
 
 const dialog = document.getElementById(selectors.dialog);
@@ -20,6 +21,7 @@ const collectButton = document.getElementById(selectors.collectImages);
 const imageList = document.getElementById(selectors.imageList);
 const emptyState = document.getElementById(selectors.emptyState);
 const imageCount = document.getElementById(selectors.imageCount);
+const minWidthInput = document.getElementById(selectors.minWidth);
 
 openButton.addEventListener('click', () => {
     dialog.showModal();
@@ -50,14 +52,21 @@ collectButton.addEventListener('click', async () => {
     });
 
     const links = (results[0]?.result || []).filter(Boolean);
-    renderImages(links);
+    const minWidth = getMinWidthValue();
+    const dimensionsCache = new Map();
+    const filteredLinks = await filterLinksByMinWidth(links, minWidth, dimensionsCache);
+
+    renderImages(filteredLinks, dimensionsCache, minWidth);
 });
 
-function renderImages(links) {
+function renderImages(links, dimensionsCache, minWidth) {
     imageList.innerHTML = '';
 
     if (!links.length) {
-        renderEmpty('На странице не найдено изображений.');
+        const message = minWidth
+            ? `Нет изображений шире ${minWidth}px.`
+            : 'На странице не найдено изображений.';
+        renderEmpty(message);
         return;
     }
 
@@ -66,7 +75,7 @@ function renderImages(links) {
     renderCount(links.length);
 
     links.forEach((link) => {
-        const item = createImageItem(link);
+        const item = createImageItem(link, dimensionsCache);
         imageList.appendChild(item);
     });
 }
@@ -84,6 +93,33 @@ function renderCount(count) {
     imageCount.classList.remove('hidden');
 }
 
+function getMinWidthValue() {
+    const value = Number.parseInt(minWidthInput.value, 10);
+
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+
+    return value;
+}
+
+async function filterLinksByMinWidth(links, minWidth, dimensionsCache) {
+    if (!minWidth) {
+        return links;
+    }
+
+    const details = await Promise.all(
+        links.map(async (link) => {
+            const dimensions = await getCachedDimensions(link, dimensionsCache);
+            return { link, dimensions };
+        })
+    );
+
+    return details
+        .filter(({ dimensions }) => Number.isFinite(dimensions.width) && dimensions.width >= minWidth)
+        .map(({ link }) => link);
+}
+
 function formatImageCount(count) {
     const mod10 = count % 10;
     const mod100 = count % 100;
@@ -99,7 +135,7 @@ function formatImageCount(count) {
     return `Найдено ${count} изображений`;
 }
 
-function createImageItem(link) {
+function createImageItem(link, dimensionsCache) {
     const item = document.createElement('li');
     item.classList.add('image-item');
 
@@ -128,7 +164,7 @@ function createImageItem(link) {
     content.append(meta, actions);
     item.append(preview, content);
 
-    hydrateMeta(link, meta);
+    hydrateMeta(link, meta, dimensionsCache);
 
     return item;
 }
@@ -169,9 +205,9 @@ function createOpenButton(link) {
     return openButton;
 }
 
-async function hydrateMeta(link, metaElement) {
+async function hydrateMeta(link, metaElement, dimensionsCache) {
     try {
-        const details = await loadImageDetails(link);
+        const details = await loadImageDetails(link, dimensionsCache);
         metaElement.textContent = formatMeta(details);
     } catch (error) {
         console.error('GetPhotos: unable to load image details', error);
@@ -179,9 +215,9 @@ async function hydrateMeta(link, metaElement) {
     }
 }
 
-async function loadImageDetails(link) {
+async function loadImageDetails(link, dimensionsCache) {
     const [dimensions, sizeKb] = await Promise.all([
-        getImageDimensions(link),
+        getCachedDimensions(link, dimensionsCache),
         getImageSize(link)
     ]);
 
@@ -190,6 +226,16 @@ async function loadImageDetails(link) {
         sizeKb,
         extension: extractExtension(link)
     };
+}
+
+async function getCachedDimensions(link, dimensionsCache) {
+    if (dimensionsCache?.has(link)) {
+        return dimensionsCache.get(link);
+    }
+
+    const dimensions = await getImageDimensions(link);
+    dimensionsCache?.set(link, dimensions);
+    return dimensions;
 }
 
 function extractExtension(link) {

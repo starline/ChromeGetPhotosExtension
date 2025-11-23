@@ -1,4 +1,4 @@
-<!-- @version 0.2 -->
+<!-- @version 0.3 -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -13,11 +13,15 @@
 
         <dialog id="controlsDialog">
             <div class="dialog__header">
-                <h2>Управление</h2>
+                <h2 aria-hidden="true" class="dialog__title"></h2>
                 <button id="closeDialog" class="ghost" aria-label="Закрыть">×</button>
             </div>
             <div class="dialog__body">
                 <div class="actions">
+                    <label class="field">
+                        <span class="field__label">Минимальная ширина</span>
+                        <input type="number" id="minWidth" class="field__input" min="0" placeholder="например, 800" />
+                    </label>
                     <button id="collectImages" class="primary">Получить изображения</button>
                 </div>
                 <div class="results" aria-live="polite">
