@@ -1,12 +1,23 @@
+<!-- @version 0.5 -->
 <div class="gp-surface" role="dialog" aria-label="GetPhotos">
     <header class="gp-header">
         <div class="gp-title">
             <span class="gp-name">GetPhotos</span>
-            <span class="gp-subtitle">Управление</span>
+            <span class="gp-subtitle">Фильтры изображений</span>
         </div>
         <button class="gp-close" type="button" aria-label="Закрыть панель">×</button>
     </header>
     <div class="gp-actions">
+        <label class="gp-field">
+            <span class="gp-field__label">Минимальная ширина</span>
+            <input
+                type="number"
+                class="gp-input"
+                min="0"
+                placeholder="например, 800"
+                aria-label="Минимальная ширина изображения"
+            />
+        </label>
         <button class="gp-primary" type="button">Получить изображения</button>
     </div>
     <p class="gp-counter gp-hidden" aria-live="polite"></p>

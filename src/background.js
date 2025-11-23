@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 1.0
+ * @version 1.1
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -138,7 +138,7 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         return Array.from(new Set(links));
     };
 
-    const createLinkRow = (link) => {
+    const createLinkRow = (link, dimensionsCache) => {
         const item = document.createElement('li');
         item.className = 'gp-item';
 
@@ -158,7 +158,7 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         meta.textContent = 'Загружаем информацию...';
 
         const actions = document.createElement('div');
-        actions.className = 'gp-actions';
+        actions.className = 'gp-actions-row';
 
         const copyButton = document.createElement('button');
         copyButton.type = 'button';
@@ -190,14 +190,14 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         content.append(meta, actions);
         item.append(preview, content);
 
-        hydrateMeta(link, meta);
+        hydrateMeta(link, meta, dimensionsCache);
 
         return item;
     };
 
-    const hydrateMeta = async (link, metaElement) => {
+    const hydrateMeta = async (link, metaElement, dimensionsCache) => {
         try {
-            const details = await loadImageDetails(link);
+            const details = await loadImageDetails(link, dimensionsCache);
             metaElement.textContent = formatMeta(details);
         } catch (error) {
             console.error('GetPhotos: unable to load image details', error);
@@ -205,9 +205,9 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         }
     };
 
-    const loadImageDetails = async (link) => {
+    const loadImageDetails = async (link, dimensionsCache) => {
         const [dimensions, sizeKb] = await Promise.all([
-            getImageDimensions(link),
+            getCachedDimensions(link, dimensionsCache),
             getImageSize(link)
         ]);
 
@@ -244,6 +244,16 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         const size = Number.isFinite(sizeKb) ? `${sizeKb} KB` : 'Размер файла неизвестен';
 
         return `${dimensions} · ${format} · ${size}`;
+    };
+
+    const getCachedDimensions = async (link, dimensionsCache) => {
+        if (dimensionsCache?.has(link)) {
+            return dimensionsCache.get(link);
+        }
+
+        const dimensions = await getImageDimensions(link);
+        dimensionsCache?.set(link, dimensions);
+        return dimensions;
     };
 
     const getImageDimensions = (link) => {
@@ -300,13 +310,15 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         return `Найдено ${count} изображений`;
     };
 
-    const renderLinks = (links, elements) => {
+    const renderLinks = (links, elements, minWidth, dimensionsCache) => {
         const { emptyState, list, counter } = elements;
 
         list.innerHTML = '';
 
         if (!links.length) {
-            emptyState.textContent = 'На странице не найдено изображений.';
+            emptyState.textContent = minWidth
+                ? `Нет изображений шире ${minWidth}px.`
+                : 'На странице не найдено изображений.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
             counter.textContent = '';
@@ -319,7 +331,34 @@ function toggleSidePanel(panelId, templateHtml, styles) {
         counter.textContent = formatImageCount(links.length);
         counter.classList.remove('gp-hidden');
 
-        links.forEach((link) => list.appendChild(createLinkRow(link)));
+        links.forEach((link) => list.appendChild(createLinkRow(link, dimensionsCache)));
+    };
+
+    const getMinWidthValue = (input) => {
+        const value = Number.parseInt(input.value, 10);
+
+        if (!Number.isFinite(value) || value <= 0) {
+            return null;
+        }
+
+        return value;
+    };
+
+    const filterLinksByMinWidth = async (links, minWidth, dimensionsCache) => {
+        if (!minWidth) {
+            return links;
+        }
+
+        const details = await Promise.all(
+            links.map(async (link) => {
+                const dimensions = await getCachedDimensions(link, dimensionsCache);
+                return { link, dimensions };
+            })
+        );
+
+        return details
+            .filter(({ dimensions }) => Number.isFinite(dimensions.width) && dimensions.width >= minWidth)
+            .map(({ link }) => link);
     };
 
     const updateStatus = (message, isError = false) => {
@@ -351,16 +390,20 @@ function toggleSidePanel(panelId, templateHtml, styles) {
 
     const closeButton = panel.querySelector('.gp-close');
     const collectButton = panel.querySelector('.gp-primary');
+    const minWidthInput = panel.querySelector('.gp-input');
     const emptyState = panel.querySelector('.gp-empty');
     const counter = panel.querySelector('.gp-counter');
     const list = panel.querySelector('.gp-list');
     let lastLinks = [];
+    const dimensionsCache = new Map();
 
     closeButton.addEventListener('click', () => host.remove());
 
-    collectButton.addEventListener('click', () => {
+    collectButton.addEventListener('click', async () => {
         lastLinks = collectImageLinks();
         updateStatus('');
-        renderLinks(lastLinks, { emptyState, list, counter });
+        const minWidth = getMinWidthValue(minWidthInput);
+        const filteredLinks = await filterLinksByMinWidth(lastLinks, minWidth, dimensionsCache);
+        renderLinks(filteredLinks, { emptyState, list, counter }, minWidth, dimensionsCache);
     });
 }
