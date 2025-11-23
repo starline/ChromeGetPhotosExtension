@@ -1,11 +1,10 @@
 {
     "manifest_version": 3,
     "name": "GetPhotos",
-    "description": "Извлекает ссылки на изображения с текущего сайта и показывает их в всплывающем окне.",
+    "description": "Извлекает ссылки на изображения с текущего сайта и показывает их в боковой панели.",
     "version": "0.1.0",
     "action": {
-        "default_title": "GetPhotos",
-        "default_popup": "templates/popup.html"
+        "default_title": "GetPhotos"
     },
     "background": {
         "service_worker": "src/background.js"
