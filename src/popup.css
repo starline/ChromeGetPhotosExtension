@@ -1,4 +1,4 @@
-/* @version 0.5 */
+/* @version 0.6 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -82,7 +82,30 @@ dialog {
 
 .actions {
     display: flex;
-    gap: 8px;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 160px;
+}
+
+.field__label {
+    font-size: 13px;
+    color: #4a4a4a;
+}
+
+.field__input {
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 8px;
+    border: 1px solid #c9c9c9;
+    background: #ffffff;
 }
 
 .results {
@@ -113,6 +136,14 @@ dialog {
     display: flex;
     gap: 12px;
     align-items: flex-start;
+}
+
+.image-item + .image-item {
+    border-top: 1px solid #e3e3e3;
+    margin-top: 12px;
+    padding-top: 12px;
+    margin-left: 8px;
+    margin-right: 8px;
 }
 
 .image-item__preview {
