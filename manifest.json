@@ -4,7 +4,8 @@
     "description": "Извлекает ссылки на изображения с текущего сайта и показывает их в всплывающем окне.",
     "version": "0.1.0",
     "action": {
-        "default_title": "GetPhotos"
+        "default_title": "GetPhotos",
+        "default_popup": "templates/popup.html"
     },
     "background": {
         "service_worker": "src/background.js"

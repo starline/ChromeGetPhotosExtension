@@ -1,19 +1,20 @@
-<!-- @version 0.3 -->
+<!-- @version 0.4 -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GetPhotos</title>
-    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="../assets/popup.css" />
 </head>
 <body>
     <main class="popup">
         <h1 class="title">GetPhotos</h1>
         <button id="openDialog" class="primary">Открыть диалог</button>
 
-        <dialog id="controlsDialog">
+        <dialog id="controlsDialog" aria-labelledby="dialogTitle" aria-modal="true">
             <div class="dialog__header">
-                <h2 aria-hidden="true" class="dialog__title"></h2>
+                <h2 id="dialogTitle" class="dialog__title">Фильтры изображений</h2>
                 <button id="closeDialog" class="ghost" aria-label="Закрыть">×</button>
             </div>
             <div class="dialog__body">
@@ -32,6 +33,6 @@
             </div>
         </dialog>
     </main>
-    <script src="popup.js"></script>
+    <script src="../src/popup.js" defer></script>
 </body>
 </html>
