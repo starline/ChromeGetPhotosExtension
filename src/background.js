@@ -1,12 +1,17 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.9
+ * @version 1.0
  */
 
 const PANEL_ID = 'getphotos-panel-root';
+const PANEL_TEMPLATE_PATH = 'templates/panel.html';
+const PANEL_STYLES_PATH = 'assets/panel.css';
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
 const COPY_SUCCESS_MESSAGE = 'Ссылки скопированы в буфер обмена.';
 const COPY_ERROR_MESSAGE = 'Не удалось скопировать ссылки.';
+
+let panelTemplatePromise;
+let panelStylesPromise;
 
 chrome.action.onClicked.addListener(async (tab) => {
     if (!tab?.id || !tab.url) {
@@ -21,10 +26,15 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     try {
+        const [panelTemplate, panelStyles] = await Promise.all([
+            getPanelTemplate(),
+            getPanelStyles()
+        ]);
+
         await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: toggleSidePanel,
-            args: [PANEL_ID]
+            args: [PANEL_ID, panelTemplate, panelStyles]
         });
     } catch (error) {
         console.error('GetPhotos: failed to toggle panel', error);
@@ -53,7 +63,34 @@ function isServicePage(url) {
     }
 }
 
-function toggleSidePanel(panelId) {
+async function loadAsset(path) {
+    const url = chrome.runtime.getURL(path);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(`GetPhotos: failed to load asset ${path}`);
+    }
+
+    return response.text();
+}
+
+async function getPanelTemplate() {
+    if (!panelTemplatePromise) {
+        panelTemplatePromise = loadAsset(PANEL_TEMPLATE_PATH);
+    }
+
+    return panelTemplatePromise;
+}
+
+async function getPanelStyles() {
+    if (!panelStylesPromise) {
+        panelStylesPromise = loadAsset(PANEL_STYLES_PATH);
+    }
+
+    return panelStylesPromise;
+}
+
+function toggleSidePanel(panelId, templateHtml, styles) {
     const existing = document.getElementById(panelId);
     if (existing) {
         existing.remove();
@@ -61,183 +98,6 @@ function toggleSidePanel(panelId) {
     }
 
     // Helpers are declared inside to avoid ReferenceError when script runs in the page context.
-    const getStyles = () => `
-        :host {
-            font-family: "Segoe UI", sans-serif;
-            color: #1c1c1c;
-        }
-
-        .gp-panel {
-            height: 100vh;
-            width: 100%;
-        }
-
-        .gp-surface {
-            box-sizing: border-box;
-            height: 100%;
-            width: 100%;
-            background: #ffffff;
-            border-left: 1px solid #d9d9d9;
-            box-shadow: -4px 0 12px rgba(0, 0, 0, 0.08);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .gp-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .gp-title {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .gp-name {
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        .gp-subtitle {
-            color: #666666;
-            font-size: 13px;
-        }
-
-        .gp-close {
-            border: none;
-            background: transparent;
-            font-size: 20px;
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 6px;
-            line-height: 1;
-        }
-
-        .gp-close:hover {
-            background: #f0f0f0;
-        }
-
-        .gp-counter {
-            margin: 0;
-            color: #333333;
-            font-weight: 600;
-        }
-
-        .gp-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .gp-primary {
-            padding: 10px 14px;
-            font-size: 14px;
-            border-radius: 8px;
-            border: 1px solid #0078d4;
-            background: #0078d4;
-            color: #ffffff;
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.1s ease;
-            box-shadow: 0 2px 4px rgba(0, 120, 212, 0.2);
-        }
-
-        .gp-primary:active {
-            transform: translateY(1px);
-        }
-
-        .gp-secondary {
-            padding: 10px 14px;
-            font-size: 14px;
-            border-radius: 8px;
-            border: 1px solid #d0d0d0;
-            background: #ffffff;
-            color: #0078d4;
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.1s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
-        }
-
-        .gp-secondary:disabled {
-            border-color: #e3e3e3;
-            color: #a3a3a3;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-
-        .gp-status {
-            margin: 0;
-            color: #4f4f4f;
-            font-size: 13px;
-        }
-
-        .gp-status--error {
-            color: #d93025;
-        }
-
-        .gp-results {
-            border: 1px solid #e3e3e3;
-            border-radius: 10px;
-            padding: 12px;
-            background: #fafafa;
-            flex: 1;
-            overflow: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .gp-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            font-size: 13px;
-        }
-
-        .gp-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-        }
-
-        .gp-preview {
-            width: 100px;
-            height: 100px;
-            object-fit: cover;
-            border: 1px solid #e3e3e3;
-            border-radius: 8px;
-            flex-shrink: 0;
-        }
-
-        .gp-content {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            flex: 1;
-        }
-
-        .gp-meta {
-            font-size: 13px;
-            color: #666666;
-        }
-
-        .gp-actions {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .gp-hidden {
-            display: none;
-        }
-    `;
-
     const collectImageLinks = () => {
         const toAbsoluteUrl = (href) => {
             if (!href) {
@@ -480,30 +340,11 @@ function toggleSidePanel(panelId) {
 
     const shadowRoot = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
-    style.textContent = getStyles();
+    style.textContent = styles;
 
     const panel = document.createElement('section');
     panel.className = 'gp-panel';
-    panel.innerHTML = `
-        <div class="gp-surface" role="dialog" aria-label="GetPhotos">
-            <header class="gp-header">
-                <div class="gp-title">
-                    <span class="gp-name">GetPhotos</span>
-                    <span class="gp-subtitle">Управление</span>
-                </div>
-                <button class="gp-close" type="button" aria-label="Закрыть панель">×</button>
-            </header>
-            <div class="gp-actions">
-                <button class="gp-primary" type="button">Получить изображения</button>
-            </div>
-            <p class="gp-counter gp-hidden" aria-live="polite"></p>
-            <p class="gp-status gp-hidden" aria-live="polite"></p>
-            <div class="gp-results" aria-live="polite">
-                <p class="gp-empty">Список изображений появится здесь.</p>
-                <ul class="gp-list gp-hidden"></ul>
-            </div>
-        </div>
-    `;
+    panel.innerHTML = templateHtml;
 
     shadowRoot.append(style, panel);
     document.body.appendChild(host);
