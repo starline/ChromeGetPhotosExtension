@@ -1,4 +1,4 @@
-/* @version 0.4 */
+/* @version 0.5 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -80,11 +80,6 @@ dialog {
     gap: 12px;
 }
 
-.hint {
-    margin: 0;
-    color: #666666;
-}
-
 .actions {
     display: flex;
     gap: 8px;
@@ -97,6 +92,12 @@ dialog {
     background: #ffffff;
     max-height: 260px;
     overflow: auto;
+}
+
+.results__count {
+    margin: 0 0 8px;
+    color: #333333;
+    font-weight: 600;
 }
 
 #imageList {

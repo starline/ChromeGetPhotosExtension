@@ -1,6 +1,6 @@
 /**
  * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 0.8
+ * @version 0.9
  */
 
 const PANEL_ID = 'getphotos-panel-root';
@@ -122,9 +122,10 @@ function toggleSidePanel(panelId) {
             background: #f0f0f0;
         }
 
-        .gp-hint {
+        .gp-counter {
             margin: 0;
-            color: #4f4f4f;
+            color: #333333;
+            font-weight: 600;
         }
 
         .gp-actions {
@@ -424,8 +425,23 @@ function toggleSidePanel(panelId) {
         }
     };
 
+    const formatImageCount = (count) => {
+        const mod10 = count % 10;
+        const mod100 = count % 100;
+
+        if (mod10 === 1 && mod100 !== 11) {
+            return `Найдено ${count} изображение`;
+        }
+
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+            return `Найдено ${count} изображения`;
+        }
+
+        return `Найдено ${count} изображений`;
+    };
+
     const renderLinks = (links, elements) => {
-        const { emptyState, list } = elements;
+        const { emptyState, list, counter } = elements;
 
         list.innerHTML = '';
 
@@ -433,11 +449,15 @@ function toggleSidePanel(panelId) {
             emptyState.textContent = 'На странице не найдено изображений.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
+            counter.textContent = '';
+            counter.classList.add('gp-hidden');
             return;
         }
 
         emptyState.classList.add('gp-hidden');
         list.classList.remove('gp-hidden');
+        counter.textContent = formatImageCount(links.length);
+        counter.classList.remove('gp-hidden');
 
         links.forEach((link) => list.appendChild(createLinkRow(link)));
     };
@@ -473,10 +493,10 @@ function toggleSidePanel(panelId) {
                 </div>
                 <button class="gp-close" type="button" aria-label="Закрыть панель">×</button>
             </header>
-            <p class="gp-hint">Выберите действие для текущей страницы.</p>
             <div class="gp-actions">
                 <button class="gp-primary" type="button">Получить изображения</button>
             </div>
+            <p class="gp-counter gp-hidden" aria-live="polite"></p>
             <p class="gp-status gp-hidden" aria-live="polite"></p>
             <div class="gp-results" aria-live="polite">
                 <p class="gp-empty">Список изображений появится здесь.</p>
@@ -491,6 +511,7 @@ function toggleSidePanel(panelId) {
     const closeButton = panel.querySelector('.gp-close');
     const collectButton = panel.querySelector('.gp-primary');
     const emptyState = panel.querySelector('.gp-empty');
+    const counter = panel.querySelector('.gp-counter');
     const list = panel.querySelector('.gp-list');
     let lastLinks = [];
 
@@ -499,6 +520,6 @@ function toggleSidePanel(panelId) {
     collectButton.addEventListener('click', () => {
         lastLinks = collectImageLinks();
         updateStatus('');
-        renderLinks(lastLinks, { emptyState, list });
+        renderLinks(lastLinks, { emptyState, list, counter });
     });
 }
