@@ -1,7 +1,7 @@
 /**
  * Service worker: opens native Chrome side panel and collects data from the active tab.
  * Side panel is global (one shared document across tabs) — do not setOptions with tabId.
- * @version 2.0
+ * @version 2.3
  */
 
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
@@ -10,7 +10,9 @@ const SIDE_PANEL_PATH = 'templates/sidepanel.html';
 
 const MESSAGE_HANDLERS = {
     COLLECT_IMAGES: (message) => collectImagesFromActiveTab(message.minWidth),
-    COLLECT_PRODUCTS: () => collectProductsFromActiveTab()
+    COLLECT_PRODUCTS: () => collectProductsFromActiveTab(),
+    START_PICK_PRODUCT: () => startPickProductFromActiveTab(),
+    STOP_PICK_PRODUCT: () => stopPickProductFromActiveTab()
 };
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
@@ -124,12 +126,49 @@ async function collectImagesFromActiveTab(minWidth) {
 
 async function collectProductsFromActiveTab() {
     return collectFromActiveTab(async (tab) => {
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: ensureProductDomToolsInPage
+        });
+
         const [{ result: products } = {}] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
-            func: collectProductsInPage
+            func: () => globalThis.__gpProductDomTools.collectAll()
         });
 
         return { products: Array.isArray(products) ? products : [] };
+    });
+}
+
+async function startPickProductFromActiveTab() {
+    return collectFromActiveTab(async (tab) => {
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: ensureProductDomToolsInPage
+        });
+
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => globalThis.__gpProductDomTools.startPick()
+        });
+
+        return { started: true };
+    });
+}
+
+async function stopPickProductFromActiveTab() {
+    return collectFromActiveTab(async (tab) => {
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: ensureProductDomToolsInPage
+        });
+
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => globalThis.__gpProductDomTools.stopPick()
+        });
+
+        return { stopped: true };
     });
 }
 
@@ -191,10 +230,18 @@ function collectImageLinksInPage(minWidthPx = 0) {
 }
 
 /**
- * Best-effort Taobao / Tmall shop card scraper.
- * DOM differs by layout; we normalize title, image, price, sales, and product URL.
+ * Install shared Taobao / Tmall product DOM tools in the page isolated world.
+ * Collect-all and cursor pick share the same parsers. Bump TOOLS_VERSION when parsers change.
  */
-function collectProductsInPage() {
+function ensureProductDomToolsInPage() {
+    const TOOLS_VERSION = 2;
+    if (globalThis.__gpProductDomTools?.version === TOOLS_VERSION) {
+        return true;
+    }
+
+    // Tear down an older pick session before replacing the API
+    globalThis.__gpProductDomTools?.stopPick?.();
+
     const toAbsoluteUrl = (href) => {
         if (!href) {
             return null;
@@ -359,61 +406,231 @@ function collectProductsInPage() {
         return extractSalesFromText(root.textContent);
     };
 
-    const cardSelectors = [
-        '.item',
-        '.shop-item',
-        '.J_TItems .item',
-        '[class*="Card--"]',
-        '[class*="itemCard"]',
-        '[data-spm*="item"]',
-        'a[href*="item.taobao.com"]',
-        'a[href*="detail.tmall.com"]',
-        'a[href*="item.htm"]'
-    ];
+    const PRODUCT_LINK_SELECTOR =
+        'a[href*="item.taobao.com"], a[href*="detail.tmall.com"], a[href*="item.htm"]';
 
-    const roots = new Set();
-    cardSelectors.forEach((selector) => {
-        document.querySelectorAll(selector).forEach((node) => roots.add(node));
-    });
+    const CARD_ROOT_SELECTOR = '.item, .shop-item, [class*="Card"], [class*="item"]';
 
-    const products = [];
-    const seen = new Set();
+    const findProductLink = (root) => {
+        if (root.matches?.('a[href]') && isProductUrl(root.getAttribute('href'))) {
+            return root;
+        }
 
-    roots.forEach((node) => {
-        const link =
-            (node.matches?.('a[href]') && node) ||
-            node.querySelector('a[href*="item.taobao.com"], a[href*="detail.tmall.com"], a[href*="item.htm"]');
+        return root.querySelector?.(PRODUCT_LINK_SELECTOR) || null;
+    };
 
+    const resolveCardRoot = (node, link) => {
+        const fromNode = node?.closest?.(CARD_ROOT_SELECTOR);
+        if (fromNode) {
+            return fromNode;
+        }
+
+        const fromLink = link?.closest?.(CARD_ROOT_SELECTOR);
+        return fromLink || link || node;
+    };
+
+    const parseProductFromCard = (card) => {
+        const link = findProductLink(card);
         if (!link) {
-            return;
+            return null;
         }
 
         const url = toAbsoluteUrl(link.getAttribute('href'));
-        if (!url || !isProductUrl(url) || seen.has(url)) {
-            return;
+        if (!url || !isProductUrl(url)) {
+            return null;
         }
 
-        const card = node.closest('.item, .shop-item, [class*="Card"], [class*="item"]') || node;
-        const title = pickTitle(card, link);
-        const image = pickImage(card);
-        const price = pickPrice(card);
-        const sales = pickSales(card);
+        const root = resolveCardRoot(card, link);
+        const title = pickTitle(root, link);
+        const image = pickImage(root);
+        const price = pickPrice(root);
+        const sales = pickSales(root);
 
         // Skip bare navigation links without product signal
         if (!image && !price && title === 'Без названия') {
+            return null;
+        }
+
+        return { title, image, price, sales, url };
+    };
+
+    /** Walk up from a DOM node to the nearest product card. */
+    const findProductCardFromNode = (startNode) => {
+        let node = startNode;
+        if (node?.nodeType === Node.TEXT_NODE) {
+            node = node.parentElement;
+        }
+
+        while (node && node !== document.documentElement) {
+            const link = findProductLink(node);
+            if (link) {
+                const url = toAbsoluteUrl(link.getAttribute('href'));
+                if (url && isProductUrl(url)) {
+                    return resolveCardRoot(node, link);
+                }
+            }
+
+            node = node.parentElement;
+        }
+
+        return null;
+    };
+
+    const collectAll = () => {
+        const cardSelectors = [
+            '.item',
+            '.shop-item',
+            '.J_TItems .item',
+            '[class*="Card--"]',
+            '[class*="itemCard"]',
+            '[data-spm*="item"]',
+            'a[href*="item.taobao.com"]',
+            'a[href*="detail.tmall.com"]',
+            'a[href*="item.htm"]'
+        ];
+
+        const roots = new Set();
+        cardSelectors.forEach((selector) => {
+            document.querySelectorAll(selector).forEach((node) => roots.add(node));
+        });
+
+        const products = [];
+        const seen = new Set();
+
+        roots.forEach((node) => {
+            const product = parseProductFromCard(node);
+            if (!product || seen.has(product.url)) {
+                return;
+            }
+
+            seen.add(product.url);
+            products.push(product);
+        });
+
+        return products;
+    };
+
+    const HIGHLIGHT_STYLE = '2px solid #0078d4';
+    let highlightedEl = null;
+    let highlightedPrevOutline = '';
+    let highlightedPrevOffset = '';
+    let pickActive = false;
+
+    const clearHighlight = () => {
+        if (!highlightedEl) {
             return;
         }
 
-        seen.add(url);
-        products.push({ title, image, price, sales, url });
-    });
+        highlightedEl.style.outline = highlightedPrevOutline;
+        highlightedEl.style.outlineOffset = highlightedPrevOffset;
+        highlightedEl = null;
+        highlightedPrevOutline = '';
+        highlightedPrevOffset = '';
+    };
 
-    return products;
+    const setHighlight = (el) => {
+        if (highlightedEl === el) {
+            return;
+        }
+
+        clearHighlight();
+        if (!el) {
+            return;
+        }
+
+        highlightedPrevOutline = el.style.outline;
+        highlightedPrevOffset = el.style.outlineOffset;
+        el.style.outline = HIGHLIGHT_STYLE;
+        el.style.outlineOffset = '2px';
+        highlightedEl = el;
+    };
+
+    const onPointerMove = (event) => {
+        const card = findProductCardFromNode(event.target);
+        setHighlight(card);
+    };
+
+    const onClick = (event) => {
+        const card = findProductCardFromNode(event.target);
+        if (!card) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+
+        // Stay in pick mode until the panel button or Esc turns it off
+        const product = parseProductFromCard(card);
+        if (!product) {
+            try {
+                chrome.runtime.sendMessage({ type: 'PRODUCT_PICK_FAILED' });
+            } catch (error) {
+                // Extension context may be gone
+            }
+            return;
+        }
+
+        try {
+            chrome.runtime.sendMessage({ type: 'PRODUCT_PICKED', product });
+        } catch (error) {
+            // Extension context may be gone
+        }
+    };
+
+    const onKeyDown = (event) => {
+        if (event.key !== 'Escape') {
+            return;
+        }
+
+        event.preventDefault();
+        stopPick();
+
+        try {
+            chrome.runtime.sendMessage({ type: 'PRODUCT_PICK_CANCELLED' });
+        } catch (error) {
+            // Extension context may be gone
+        }
+    };
+
+    const stopPick = () => {
+        if (!pickActive) {
+            clearHighlight();
+            return;
+        }
+
+        pickActive = false;
+        document.removeEventListener('pointermove', onPointerMove, true);
+        document.removeEventListener('click', onClick, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        clearHighlight();
+        document.documentElement.style.cursor = '';
+    };
+
+    const startPick = () => {
+        stopPick();
+        pickActive = true;
+        document.documentElement.style.cursor = 'crosshair';
+        document.addEventListener('pointermove', onPointerMove, true);
+        document.addEventListener('click', onClick, true);
+        document.addEventListener('keydown', onKeyDown, true);
+    };
+
+    globalThis.__gpProductDomTools = {
+        version: TOOLS_VERSION,
+        collectAll,
+        startPick,
+        stopPick
+    };
+
+    return true;
 }
 
 /**
- * Disable toolbar action on browser service pages. Do not use sidePanel.setOptions({ tabId }) —
+ * Disable toolbar action on browser service pages.
+ * Global panel: toggle enabled only for the *active* tab — never setOptions({ tabId }),
  * that creates a per-tab panel and remounts UI on every tab switch.
+ * sidePanel.close({ tabId }) does not close a global panel, so enabled:false is required.
  */
 async function syncExtensionAvailability(tabId, url) {
     const service = isServicePage(url);
@@ -421,20 +638,9 @@ async function syncExtensionAvailability(tabId, url) {
     if (service) {
         await chrome.action.disable(tabId);
         await chrome.action.setTitle({ title: SERVICE_PAGE_WARNING, tabId });
-        await closeSidePanelIfActive(tabId);
-        return;
-    }
-
-    await chrome.action.enable(tabId);
-    await chrome.action.setTitle({ title: 'GetPhotos', tabId });
-}
-
-/**
- * Force-close a stuck panel when the active tab is a service page.
- */
-async function closeSidePanelIfActive(tabId) {
-    if (typeof chrome.sidePanel.close !== 'function') {
-        return;
+    } else {
+        await chrome.action.enable(tabId);
+        await chrome.action.setTitle({ title: 'GetPhotos', tabId });
     }
 
     let tab;
@@ -444,15 +650,15 @@ async function closeSidePanelIfActive(tabId) {
         return;
     }
 
+    // Only the focused tab controls global panel availability
     if (!tab?.active) {
         return;
     }
 
-    try {
-        await chrome.sidePanel.close({ tabId });
-    } catch (error) {
-        // Already closed, or only a global instance is open (setOptions handles hide).
-    }
+    await chrome.sidePanel.setOptions({
+        path: SIDE_PANEL_PATH,
+        enabled: !service
+    });
 }
 
 function resolveTabUrl(tab) {

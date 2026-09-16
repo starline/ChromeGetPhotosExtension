@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- @version 1.4 -->
+    <!-- @version 1.8 -->
     <title>GetPhotos — Dev Preview</title>
     <link rel="stylesheet" href="../assets/panel.css" />
     <style>
@@ -14,6 +14,8 @@
             --chrome-text: #3c4043;
             --page-bg: #f5f5f5;
             --panel-width: 380px;
+            --panel-min-width: 280px;
+            --panel-max-width: 720px;
         }
 
         html,
@@ -215,6 +217,19 @@
             background: #ffffff;
         }
 
+        .mock-page.is-picking {
+            cursor: crosshair;
+        }
+
+        .mock-page.is-picking .mock-card {
+            cursor: crosshair;
+        }
+
+        .mock-card.is-pick-hover {
+            outline: 2px solid #0078d4;
+            outline-offset: 2px;
+        }
+
         .mock-card__img {
             aspect-ratio: 1;
             background:
@@ -249,13 +264,54 @@
         }
 
         .browser__sidepanel {
+            position: relative;
             width: var(--panel-width);
+            min-width: var(--panel-min-width);
+            max-width: min(var(--panel-max-width), 55vw);
             flex-shrink: 0;
             border-left: 1px solid var(--chrome-border);
             background: #ffffff;
             display: flex;
             flex-direction: column;
             min-height: 0;
+        }
+
+        /* Left edge drag handle — same idea as Chrome Side Panel resize */
+        .browser__sidepanel-resizer {
+            position: absolute;
+            top: 0;
+            left: -3px;
+            width: 6px;
+            height: 100%;
+            z-index: 2;
+            cursor: col-resize;
+            touch-action: none;
+            background: transparent;
+        }
+
+        .browser__sidepanel-resizer::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 2px;
+            width: 2px;
+            background: transparent;
+            transition: background-color 0.12s ease;
+        }
+
+        .browser__sidepanel-resizer:hover::after,
+        .browser.is-resizing-panel .browser__sidepanel-resizer::after {
+            background: #8ab4f8;
+        }
+
+        .browser.is-resizing-panel {
+            cursor: col-resize;
+            user-select: none;
+        }
+
+        .browser.is-resizing-panel .browser__page {
+            pointer-events: none;
         }
 
         .sidepanel-chrome {
@@ -326,6 +382,12 @@
 
             .browser__sidepanel {
                 width: 100%;
+                min-width: 0;
+                max-width: none;
+            }
+
+            .browser__sidepanel-resizer {
+                display: none;
             }
         }
     </style>
@@ -347,7 +409,7 @@
 
         <div class="browser__workspace">
             <main class="browser__page" aria-label="Активная вкладка (мок)">
-                <div class="mock-page">
+                <div class="mock-page" data-role="mock-page">
                     <div class="mock-page__store">
                         <div class="mock-page__logo">CW</div>
                         <div>
@@ -375,7 +437,14 @@
                                 <span>价格</span>
                             </div>
                             <div class="mock-page__grid">
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="气动电磁阀 4V210-08 二位五通换向气阀"
+                                    data-pick-price="¥11.99"
+                                    data-pick-sales="900+"
+                                    data-pick-image="https://picsum.photos/id/1015/400/400"
+                                    data-pick-url="https://item.taobao.com/item.htm?id=91001"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">气动电磁阀 4V210-08 二位五通换向气阀</p>
@@ -383,7 +452,14 @@
                                         <p class="mock-card__sales">900+人付款</p>
                                     </div>
                                 </article>
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="亚德客型手动阀 4H210-08 手板阀"
+                                    data-pick-price="¥8.88"
+                                    data-pick-sales="500+"
+                                    data-pick-image="https://picsum.photos/id/1016/400/400"
+                                    data-pick-url="https://item.taobao.com/item.htm?id=91002"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">亚德客型手动阀 4H210-08 手板阀</p>
@@ -391,7 +467,14 @@
                                         <p class="mock-card__sales">500+人付款</p>
                                     </div>
                                 </article>
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="空压机电子排水器 OPT-A / OPT-B"
+                                    data-pick-price="¥10.00"
+                                    data-pick-sales="400+"
+                                    data-pick-image="https://picsum.photos/id/1025/400/400"
+                                    data-pick-url="https://detail.tmall.com/item.htm?id=91003"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">空压机电子排水器 OPT-A / OPT-B</p>
@@ -399,7 +482,14 @@
                                         <p class="mock-card__sales">400+人付款</p>
                                     </div>
                                 </article>
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="2V025-08 换向气阀 二位二通"
+                                    data-pick-price="¥7.00"
+                                    data-pick-sales="200+"
+                                    data-pick-image="https://picsum.photos/id/225/400/400"
+                                    data-pick-url="https://item.taobao.com/item.htm?id=91004"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">2V025-08 换向气阀 二位二通</p>
@@ -407,7 +497,14 @@
                                         <p class="mock-card__sales">200+人付款</p>
                                     </div>
                                 </article>
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="电磁阀 4V420-15 双电控换向阀"
+                                    data-pick-price="¥38.00"
+                                    data-pick-sales="56"
+                                    data-pick-image="https://picsum.photos/id/335/400/400"
+                                    data-pick-url="https://item.taobao.com/item.htm?id=91005"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">电磁阀 4V420-15 双电控换向阀</p>
@@ -415,7 +512,14 @@
                                         <p class="mock-card__sales">56人付款</p>
                                     </div>
                                 </article>
-                                <article class="mock-card">
+                                <article
+                                    class="mock-card"
+                                    data-pick-title="气源处理器 AFR+AL 二联件"
+                                    data-pick-price="¥8.00"
+                                    data-pick-sales="43"
+                                    data-pick-image="https://picsum.photos/id/201/400/400"
+                                    data-pick-url="https://item.taobao.com/item.htm?id=91006"
+                                >
                                     <div class="mock-card__img"></div>
                                     <div class="mock-card__body">
                                         <p class="mock-card__title">气源处理器 AFR+AL 二联件</p>
@@ -430,6 +534,13 @@
             </main>
 
             <aside class="browser__sidepanel" aria-label="Chrome Side Panel">
+                <div
+                    class="browser__sidepanel-resizer"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Изменить ширину панели"
+                    tabindex="0"
+                ></div>
                 <div class="sidepanel-chrome">
                     <span class="sidepanel-chrome__icon" aria-hidden="true">G</span>
                     <span class="sidepanel-chrome__title">GetPhotos</span>
@@ -570,6 +681,18 @@
                             <p class="gp-source gp-hidden" data-role="source" aria-live="polite"></p>
                             <div class="gp-actions">
                                 <button class="gp-primary" type="button" data-role="collect">Получить товары</button>
+                                <button
+                                    class="gp-secondary gp-icon-btn"
+                                    type="button"
+                                    data-role="pick-product"
+                                    title="Выбрать товары на странице"
+                                    aria-label="Выбрать товары на странице"
+                                    aria-pressed="false"
+                                >
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path d="M5 3v14l4.2-4.2L13 21l2.1-1.1-3.7-7.6L17 11.5z"></path>
+                                    </svg>
+                                </button>
                             </div>
                             <div class="gp-persist" data-role="persist" role="group" aria-label="Сохранённый список товаров">
                                 <button class="gp-secondary" type="button" data-role="export-csv" title="Экспортировать собранные товары в CSV">
@@ -656,7 +779,7 @@
     <script>
         /**
          * Mock Chrome extension APIs so the real sidepanel.js can run in a normal browser.
-         * @version 1.0
+         * @version 1.2
          */
         const FAKE_PHOTOS_PAGE = {
             pageUrl: 'https://shop110169991.world.taobao.com/category.htm',
@@ -720,7 +843,95 @@
         const mockStorage = Object.create(null);
         const tabActivatedListeners = [];
         const tabUpdatedListeners = [];
+        const runtimeMessageListeners = [];
         let mockActiveTab = { id: 1, url: FAKE_PRODUCTS_PAGE.pageUrl };
+        let mockPickActive = false;
+        let mockPickHoverCard = null;
+
+        const mockPage = document.querySelector('[data-role="mock-page"]');
+
+        const emitRuntimeMessage = (message) => {
+            runtimeMessageListeners.forEach((listener) => {
+                listener(message, {}, () => {});
+            });
+        };
+
+        const clearMockPickHover = () => {
+            mockPickHoverCard?.classList.remove('is-pick-hover');
+            mockPickHoverCard = null;
+        };
+
+        const stopMockProductPick = ({ emitCancel = false } = {}) => {
+            if (!mockPickActive && !mockPage?.classList.contains('is-picking')) {
+                clearMockPickHover();
+                return;
+            }
+
+            mockPickActive = false;
+            mockPage?.classList.remove('is-picking');
+            clearMockPickHover();
+
+            if (emitCancel) {
+                emitRuntimeMessage({ type: 'PRODUCT_PICK_CANCELLED' });
+            }
+        };
+
+        const startMockProductPick = () => {
+            stopMockProductPick();
+            mockPickActive = true;
+            mockPage?.classList.add('is-picking');
+        };
+
+        mockPage?.addEventListener('pointermove', (event) => {
+            if (!mockPickActive) {
+                return;
+            }
+
+            const card = event.target.closest?.('.mock-card');
+            if (card === mockPickHoverCard) {
+                return;
+            }
+
+            clearMockPickHover();
+            if (card) {
+                card.classList.add('is-pick-hover');
+                mockPickHoverCard = card;
+            }
+        });
+
+        mockPage?.addEventListener('click', (event) => {
+            if (!mockPickActive) {
+                return;
+            }
+
+            const card = event.target.closest?.('.mock-card');
+            if (!card) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const product = {
+                title: card.dataset.pickTitle || 'Без названия',
+                image: card.dataset.pickImage || '',
+                price: card.dataset.pickPrice || '',
+                sales: card.dataset.pickSales || '',
+                url: card.dataset.pickUrl || `https://item.taobao.com/item.htm?id=${Date.now()}`
+            };
+
+            // Keep mock pick mode on so multiple cards can be added
+            emitRuntimeMessage({ type: 'PRODUCT_PICKED', product });
+        }, true);
+
+        document.addEventListener('keydown', (event) => {
+            if (!mockPickActive || event.key !== 'Escape') {
+                return;
+            }
+
+            event.preventDefault();
+            stopMockProductPick({ emitCancel: true });
+        });
 
         const setMockOmniboxUrl = (url) => {
             const omnibox = document.querySelector('.browser__omnibox');
@@ -757,7 +968,22 @@
                         };
                     }
 
+                    if (message?.type === 'START_PICK_PRODUCT') {
+                        startMockProductPick();
+                        return { ok: true, started: true };
+                    }
+
+                    if (message?.type === 'STOP_PICK_PRODUCT') {
+                        stopMockProductPick();
+                        return { ok: true, stopped: true };
+                    }
+
                     return { ok: false, error: 'Unknown message type.' };
+                },
+                onMessage: {
+                    addListener: (listener) => {
+                        runtimeMessageListeners.push(listener);
+                    }
                 }
             },
             storage: {
@@ -819,6 +1045,112 @@
             document.querySelector('[data-tool-panel="photos"] [data-role="collect"]').click();
             document.querySelector('[data-tool-panel="products"] [data-role="collect"]').click();
         });
+
+        // Resize Side Panel like Chrome (drag left edge)
+        (() => {
+            const browser = document.querySelector(".browser");
+            const sidepanel = document.querySelector(".browser__sidepanel");
+            const resizer = document.querySelector(".browser__sidepanel-resizer");
+            if (!browser || !sidepanel || !resizer) {
+                return;
+            }
+
+            const STORAGE_KEY = "gpDevPreviewPanelWidth";
+            const MIN_WIDTH = 280;
+            const MAX_WIDTH = 720;
+            const KEYBOARD_STEP = 16;
+
+            const clampWidth = (width) => {
+                const workspace = browser.querySelector(".browser__workspace");
+                const workspaceWidth = workspace ? workspace.clientWidth : window.innerWidth;
+                const maxByViewport = Math.min(MAX_WIDTH, Math.floor(workspaceWidth * 0.55));
+                return Math.max(MIN_WIDTH, Math.min(maxByViewport, Math.round(width)));
+            };
+
+            const applyWidth = (width) => {
+                const next = clampWidth(width);
+                sidepanel.style.width = `${next}px`;
+                document.documentElement.style.setProperty("--panel-width", `${next}px`);
+                return next;
+            };
+
+            const persistWidth = () => {
+                localStorage.setItem(
+                    STORAGE_KEY,
+                    String(Math.round(sidepanel.getBoundingClientRect().width))
+                );
+            };
+
+            const saved = Number.parseInt(localStorage.getItem(STORAGE_KEY) || "", 10);
+            if (Number.isFinite(saved)) {
+                applyWidth(saved);
+            }
+
+            let dragStartX = 0;
+            let dragStartWidth = 0;
+            let resizing = false;
+
+            const onPointerMove = (event) => {
+                if (!resizing) {
+                    return;
+                }
+                const delta = dragStartX - event.clientX;
+                applyWidth(dragStartWidth + delta);
+            };
+
+            const stopResize = (event) => {
+                if (!resizing) {
+                    return;
+                }
+                resizing = false;
+                if (event && event.pointerId != null) {
+                    try {
+                        resizer.releasePointerCapture(event.pointerId);
+                    } catch (_) {
+                        /* already released or unsupported */
+                    }
+                }
+                browser.classList.remove("is-resizing-panel");
+                document.removeEventListener("pointermove", onPointerMove);
+                document.removeEventListener("pointerup", stopResize);
+                document.removeEventListener("pointercancel", stopResize);
+                persistWidth();
+            };
+
+            resizer.addEventListener("pointerdown", (event) => {
+                if (event.button != null && event.button !== 0) {
+                    return;
+                }
+                event.preventDefault();
+                resizing = true;
+                dragStartX = event.clientX;
+                dragStartWidth = sidepanel.getBoundingClientRect().width;
+                browser.classList.add("is-resizing-panel");
+                try {
+                    resizer.setPointerCapture(event.pointerId);
+                } catch (_) {
+                    /* synthetic / unsupported — document listeners still work */
+                }
+                document.addEventListener("pointermove", onPointerMove);
+                document.addEventListener("pointerup", stopResize);
+                document.addEventListener("pointercancel", stopResize);
+            });
+
+            resizer.addEventListener("keydown", (event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                }
+                event.preventDefault();
+                const current = sidepanel.getBoundingClientRect().width;
+                const delta = event.key === "ArrowLeft" ? KEYBOARD_STEP : -KEYBOARD_STEP;
+                applyWidth(current + delta);
+                persistWidth();
+            });
+
+            window.addEventListener("resize", () => {
+                applyWidth(sidepanel.getBoundingClientRect().width);
+            });
+        })();
     </script>
 </body>
 </html>

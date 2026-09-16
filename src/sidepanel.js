@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * Collections persist in chrome.storage.local and survive browser restarts.
- * @version 2.2
+ * @version 2.7
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -13,6 +13,11 @@ const EXPORT_CSV_SUCCESS_MESSAGE = 'CSV-файл скачан.';
 const EXPORT_CSV_EMPTY_MESSAGE = 'Нет данных для экспорта.';
 const CLEAR_PHOTOS_SUCCESS_MESSAGE = 'Сохранённый список изображений очищен.';
 const CLEAR_PRODUCTS_SUCCESS_MESSAGE = 'Сохранённый список товаров очищен.';
+const PICK_PRODUCT_HINT_MESSAGE = 'Кликните по карточкам на странице. Кнопка или Esc — выключить выбор.';
+const PICK_PRODUCT_ADDED_MESSAGE = 'Товар добавлен. Можно выбрать ещё.';
+const PICK_PRODUCT_EXISTS_MESSAGE = 'Этот товар уже есть в списке.';
+const PICK_PRODUCT_CANCELLED_MESSAGE = 'Выбор товаров выключен.';
+const PICK_PRODUCT_FAILED_MESSAGE = 'Не удалось распознать товар в выбранном блоке.';
 const DEFAULT_MIN_WIDTH = GpSettingsStore.DEFAULT_MIN_WIDTH;
 
 const ICON_LINK = `
@@ -394,6 +399,7 @@ async function initProductsTool(root) {
     }
 
     const collectButton = root.querySelector('[data-role="collect"]');
+    const pickButton = root.querySelector('[data-role="pick-product"]');
     const emptyState = root.querySelector('[data-role="empty"]');
     const counter = root.querySelector('[data-role="counter"]');
     const list = root.querySelector('[data-role="list"]');
@@ -415,6 +421,13 @@ async function initProductsTool(root) {
     let updatedAt = null;
     let sortField = null;
     let sortDirection = 'asc';
+    let isPickingProduct = false;
+    let pickRequestInFlight = false;
+
+    const syncOpenTabHighlight = async () => {
+        const tabUrl = await getActiveTabUrl();
+        highlightOpenProductInList(list, tabUrl);
+    };
 
     const stored = await GpCollectionStore.loadProductsCollection();
     lastProducts = stored.products;
@@ -424,11 +437,6 @@ async function initProductsTool(root) {
     setSource(sourceLabel, pageUrl, pageTitle);
     renderProducts(getSortedProducts(lastProducts));
     syncPersistButtons();
-
-    const syncOpenTabHighlight = async () => {
-        const tabUrl = await getActiveTabUrl();
-        highlightOpenProductInList(list, tabUrl);
-    };
 
     if (chrome.tabs?.onActivated?.addListener) {
         chrome.tabs.onActivated.addListener(() => {
@@ -445,6 +453,10 @@ async function initProductsTool(root) {
     }
 
     collectButton.addEventListener('click', async () => {
+        if (isPickingProduct) {
+            await stopProductPick({ silent: true, notifyPage: true });
+        }
+
         updateStatus(status, 'Парсим товары на активной вкладке...');
         collectButton.disabled = true;
 
@@ -473,6 +485,69 @@ async function initProductsTool(root) {
             collectButton.disabled = false;
         }
     });
+
+    pickButton?.addEventListener('click', async () => {
+        // Ignore re-entrant clicks while START/STOP is in flight (avoids instant toggle-off)
+        if (pickRequestInFlight) {
+            return;
+        }
+
+        if (isPickingProduct) {
+            pickRequestInFlight = true;
+            try {
+                await stopProductPick({ notifyPage: true });
+            } finally {
+                pickRequestInFlight = false;
+            }
+            return;
+        }
+
+        pickRequestInFlight = true;
+        // Optimistic UI so the button stays pressed while the page injector starts
+        setPickingUi(true);
+        updateStatus(status, PICK_PRODUCT_HINT_MESSAGE);
+
+        try {
+            const response = await chrome.runtime.sendMessage({ type: 'START_PICK_PRODUCT' });
+
+            if (!response?.ok) {
+                setPickingUi(false);
+                updateStatus(status, response?.error || 'Не удалось начать выбор товара.', true);
+            }
+        } catch (error) {
+            console.error('GetProducts: start pick failed', error);
+            setPickingUi(false);
+            updateStatus(status, 'Не удалось начать выбор товара.', true);
+        } finally {
+            pickRequestInFlight = false;
+        }
+    });
+
+    if (chrome.runtime?.onMessage?.addListener) {
+        chrome.runtime.onMessage.addListener((message) => {
+            if (!isPickingProduct) {
+                return undefined;
+            }
+
+            if (message?.type === 'PRODUCT_PICKED') {
+                void handlePickedProduct(message.product);
+                return undefined;
+            }
+
+            if (message?.type === 'PRODUCT_PICK_CANCELLED') {
+                setPickingUi(false);
+                updateStatus(status, PICK_PRODUCT_CANCELLED_MESSAGE);
+                return undefined;
+            }
+
+            if (message?.type === 'PRODUCT_PICK_FAILED') {
+                updateStatus(status, PICK_PRODUCT_FAILED_MESSAGE, true);
+                return undefined;
+            }
+
+            return undefined;
+        });
+    }
 
     sortButtons.forEach((button) => {
         button.addEventListener('click', () => {
@@ -504,6 +579,10 @@ async function initProductsTool(root) {
     });
 
     clearButton?.addEventListener('click', async () => {
+        if (isPickingProduct) {
+            await stopProductPick({ silent: true, notifyPage: true });
+        }
+
         lastProducts = [];
         pageUrl = null;
         pageTitle = null;
@@ -535,6 +614,68 @@ async function initProductsTool(root) {
         if (clearButton) {
             clearButton.disabled = !hasData;
         }
+    }
+
+    function setPickingUi(active) {
+        isPickingProduct = active;
+        if (!pickButton) {
+            return;
+        }
+
+        pickButton.classList.toggle('is-active', active);
+        pickButton.setAttribute('aria-pressed', String(active));
+        pickButton.title = active
+            ? 'Выключить выбор товаров'
+            : 'Выбрать товары на странице';
+        enableBootstrapTooltip(pickButton);
+    }
+
+    async function stopProductPick({ silent = false, notifyPage = false } = {}) {
+        setPickingUi(false);
+
+        if (notifyPage) {
+            try {
+                await chrome.runtime.sendMessage({ type: 'STOP_PICK_PRODUCT' });
+            } catch (error) {
+                console.error('GetProducts: stop pick failed', error);
+            }
+        }
+
+        if (!silent) {
+            updateStatus(status, PICK_PRODUCT_CANCELLED_MESSAGE);
+        }
+    }
+
+    async function handlePickedProduct(rawProduct) {
+        const product = normalizePickedProduct(rawProduct);
+        if (!product) {
+            updateStatus(status, PICK_PRODUCT_FAILED_MESSAGE, true);
+            return;
+        }
+
+        const existingIndex = lastProducts.findIndex((item) => isSameProductUrl(item.url, product.url));
+        if (existingIndex >= 0) {
+            updateStatus(status, PICK_PRODUCT_EXISTS_MESSAGE);
+            renderProducts(getSortedProducts(lastProducts));
+            return;
+        }
+
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.url && !pageUrl) {
+                pageUrl = tab.url;
+                pageTitle = tab.title || pageTitle;
+            }
+        } catch (error) {
+            // Keep previous source if tab lookup fails
+        }
+
+        updatedAt = new Date().toISOString();
+        lastProducts = [...lastProducts, product];
+        await persistProducts();
+        setSource(sourceLabel, pageUrl, pageTitle);
+        renderProducts(getSortedProducts(lastProducts));
+        updateStatus(status, PICK_PRODUCT_ADDED_MESSAGE);
     }
 
     function getSortedProducts(products) {
@@ -602,6 +743,27 @@ async function initProductsTool(root) {
         updateStatus(status, REMOVE_PRODUCT_SUCCESS_MESSAGE);
         renderProducts(getSortedProducts(lastProducts));
     }
+}
+
+/** Normalize a product DTO coming from the page pick injector. */
+function normalizePickedProduct(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+    if (!url) {
+        return null;
+    }
+
+    return {
+        title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Без названия',
+        image: typeof raw.image === 'string' ? raw.image : '',
+        price: typeof raw.price === 'string' ? raw.price : '',
+        sales: typeof raw.sales === 'string' ? raw.sales : '',
+        url,
+        photos: []
+    };
 }
 
 /** Active browser tab URL (empty when unavailable). */
@@ -781,8 +943,8 @@ function createProductRow(product, status, onRemove, onPersist) {
     actions.className = 'gp-actions-row';
     actions.append(
         createCopyLinkButton(product.url || '', status, !product.url),
-        createOpenInSameTabButton(product.url || '', !product.url),
         createOpenButton(product.url || '', !product.url),
+        createOpenInSameTabButton(product.url || '', !product.url),
         createRemoveButton(onRemove)
     );
 

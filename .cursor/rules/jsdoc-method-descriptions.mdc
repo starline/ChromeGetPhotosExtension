@@ -1,0 +1,47 @@
+---
+description: Require a short JSDoc description for every function/method
+globs: "**/*.js"
+alwaysApply: false
+---
+
+# JSDoc method descriptions
+
+When adding or changing a function/method in JS, always write a **short description** in the JSDoc block above it — not only `@param` / `@returns`.
+
+## Required
+
+- One-line summary of what the method does (purpose, not implementation)
+- Keep existing `@param`, `@returns`, and other tags
+- Prefer Russian or English consistently with nearby code in the same file
+- Trivial one-liners (e.g. simple getters that only return a field) may stay without a prose line if the name is self-explanatory — prefer a description for exported/public API
+
+## Format
+
+```javascript
+/**
+ * Load settings from chrome.storage.local with safe defaults.
+ * @returns {Promise<{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }>}
+ */
+async function loadSettings() { /* ... */ }
+```
+
+## Avoid
+
+```javascript
+// ❌ BAD — tags only, no description
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isProductUrl(url) { /* ... */ }
+
+// ✅ GOOD
+/**
+ * Check whether the URL looks like a Taobao/Tmall product page.
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isProductUrl(url) { /* ... */ }
+```
+
+Do not invent long essays — one clear sentence is enough.

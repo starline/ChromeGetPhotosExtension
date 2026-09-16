@@ -24,12 +24,14 @@ GetPhotos — MV3-расширение с **одним глобальным Side
 
 ```
 [Active tab DOM]
-       ↑ chrome.scripting.executeScript (injected collectors)
+       ↑ chrome.scripting.executeScript (injected collectors / pick mode)
        |
 [src/background.js]  ←── chrome.runtime.sendMessage ──→  [src/sidepanel.js]
   service worker              COLLECT_IMAGES /                     UI + in-memory state
   sidePanel enable/disable    COLLECT_PRODUCTS
-  page collectors
+  page collectors             START_PICK_PRODUCT /
+                              STOP_PICK_PRODUCT
+                              ← PRODUCT_PICKED / CANCELLED
                                                               ↓
                                                     [src/services/*]
                                                     chrome.storage.local
@@ -50,8 +52,9 @@ GetPhotos — MV3-расширение с **одним глобальным Side
 
 1. Пользователь жмёт collect в панели → `chrome.runtime.sendMessage({ type: 'COLLECT_IMAGES' | 'COLLECT_PRODUCTS', ... })`.
 2. `background.js` → `MESSAGE_HANDLERS` → `collectFromActiveTab` (guard: service pages).
-3. `chrome.scripting.executeScript` инжектит **чистую функцию** из background (`collectImageLinksInPage` / `collectProductsInPage`) в DOM вкладки.
+3. `chrome.scripting.executeScript` инжектит **чистую функцию** из background (`collectImageLinksInPage` / `ensureProductDomToolsInPage` + `collectAll`) в DOM вкладки.
 4. Ответ `{ ok, links|products, pageUrl, pageTitle, error? }` → UI рендерит и держит в локальных массивах (`lastLinks` / products). Повторный collect перезаписывает список; смена вкладки **не** очищает панель.
+5. **Pick product**: кнопка-курсор → `START_PICK_PRODUCT` → inject `startPick` на активной вкладке (outline по hover, click парсит карточку). Пока режим включён, страница шлёт `PRODUCT_PICKED` / `PRODUCT_PICK_FAILED` на каждый клик → sidepanel **добавляет** товары в список (без полной перезаписи). Выход: Esc или повторный клик по кнопке → `STOP_PICK_PRODUCT` / `PRODUCT_PICK_CANCELLED`.
 
 ### Поток данных: настройки
 
@@ -63,7 +66,7 @@ GetPhotos — MV3-расширение с **одним глобальным Side
 ### Инструменты UI (один panel, три режима)
 
 - **photos** — ссылки на изображения, min width, sort по площади, copy URL/image, open, remove.
-- **products** — карточки Taobao/Tmall; sort price/sales; open same/new tab; highlight по URL активной вкладки; кнопка «Фотографии» → тот же `COLLECT_IMAGES` в ячейку товара.
+- **products** — карточки Taobao/Tmall; collect all / cursor multi-pick (пока кнопка включена); sort price/sales; open same/new tab; highlight по URL активной вкладки; кнопка «Фотографии» → тот же `COLLECT_IMAGES` в ячейку товара.
 - **settings** — defaults + OpenAI token/model.
 
 ### Жёсткие инварианты для агента
