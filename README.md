@@ -4,7 +4,7 @@ A Manifest V3 extension with a native **Side Panel** and a top tool switcher:
 
 - **GetPhotos** — collects image links from the active page (`<img>` `src` and links with image file extensions), deduplicates them, filters by minimum width, and lets you copy URL/image, open links, or remove items from the current list.
 - **GetProducts** — parses Taobao / Tmall shop pages and extracts product cards: image, title, sales count, price, and product link. Open a product in the current tab (monitor icon) or in a new tab. The product open in the active browser tab is highlighted in the list with a light-yellow background.
-- **Settings** (gear icon) — app defaults; currently the default minimum image width (500px), applied to the GetPhotos filter field.
+- **Settings** (gear icon) — app defaults: default minimum image width (500px), OpenAI API token, and OpenAI model. Values are saved in `chrome.storage.local` for the GetPhotos filter and future AI API calls.
 
 The panel stays open across tab switches. Rescan runs only when you click the collect button for the active tool.
 
@@ -13,6 +13,7 @@ On browser service pages (`chrome://`, `edge://`, `about:`, DevTools, etc.) the 
 ## Requirements
 - Google Chrome 114+ (Side Panel API) or another Chromium browser with Manifest V3 + side panel support.
 - Access to the pages you want to collect data from (scan runs against the active tab).
+- (Optional) An [OpenAI API key](https://platform.openai.com/api-keys) if you plan to use AI features once they are wired up.
 
 ## Installation
 1. Download or clone the repository to a folder of your choice, e.g. `~/GetPhotos`.
@@ -26,7 +27,7 @@ On browser service pages (`chrome://`, `edge://`, `about:`, DevTools, etc.) the 
 3. Use the **square icons** at the top to switch tools:
    - **GetPhotos** — optionally adjust minimum width (prefilled from Settings, default 500) and click **Получить изображения**. Use **По размеру** above the list to sort by image area (width × height; click again to reverse).
    - **GetProducts** — on a Taobao/Tmall shop page click **Получить товары** to list products (image, title, price, sales, link). Use **По цене** / **По продажам** above the list to sort (click again to reverse direction).
-   - **Settings** (gear on the right) — set the default minimum image width; it is saved in `chrome.storage` and synced into the GetPhotos filter field.
+   - **Settings** (gear on the right) — set default minimum image width, OpenAI API token, and model; saved in `chrome.storage.local`. Width syncs into the GetPhotos filter; token/model are ready for upcoming AI API calls.
 4. Switch browser tabs freely — the panel and collected lists stay until you collect again.
 5. Use the **link** icon to copy a URL, the **copy** icon to copy the image itself, the **open** icon to open the link in a new tab, the **monitor** icon (products) to open the product page in the current tab, or the **delete forever** icon to remove an item from the current list. In GetProducts, the item matching the active tab URL is highlighted (light yellow). Hover tooltips (Bootstrap) show action labels on buttons and other titled controls.
 6. Close the panel with Chrome’s side panel close control.
@@ -35,6 +36,7 @@ On browser service pages (`chrome://`, `edge://`, `about:`, DevTools, etc.) the 
 - `manifest.json` — MV3 manifest (`permissions`: `activeTab`, `tabs`, `scripting`, `sidePanel`, `storage`).
 - `src/background.js` — service worker; side panel behavior, image collection, Taobao product parsing.
 - `src/sidepanel.js` — side panel UI (tool switcher, settings, lists, filters, sort by image size / price / sales, copy link/image, open in new/same tab, highlight product open in active tab, remove from list, Bootstrap tooltips).
+- `src/services/openaiConfig.js` — OpenAI settings helpers (model list, normalize, `GpOpenAiConfig` for future API use).
 - `templates/sidepanel.html`, `assets/panel.css` — side panel page and styles.
 - `assets/vendor/bootstrap.bundle.min.js` — Bootstrap 5 (tooltips only; local for MV3 CSP).
 - `templates/dev-preview.html` — browser preview with mocked Chrome APIs and fake Photos/Products data.

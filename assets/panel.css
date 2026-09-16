@@ -1,4 +1,4 @@
-/* @version 1.2 */
+/* @version 1.3 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -162,7 +162,19 @@ body {
     color: var(--muted);
 }
 
-.gp-input {
+.gp-settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.gp-settings-form .gp-field {
+    min-width: 0;
+    width: 100%;
+}
+
+.gp-input,
+.gp-select {
     padding: 10px 12px;
     font-size: 14px;
     border-radius: var(--radius);
@@ -172,7 +184,12 @@ body {
     color: var(--text);
 }
 
-.gp-input:focus-visible {
+.gp-select {
+    cursor: pointer;
+}
+
+.gp-input:focus-visible,
+.gp-select:focus-visible {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.16);

@@ -158,7 +158,7 @@
                     <span class="gp-subtitle">Параметры приложения</span>
                 </div>
             </header>
-            <div class="gp-actions">
+            <div class="gp-settings-form">
                 <label class="gp-field">
                     <span class="gp-field__label">Минимальная ширина изображения по умолчанию</span>
                     <input
@@ -171,12 +171,33 @@
                         aria-label="Минимальная ширина изображения по умолчанию"
                     />
                 </label>
+                <label class="gp-field">
+                    <span class="gp-field__label">OpenAI API token</span>
+                    <input
+                        type="password"
+                        class="gp-input"
+                        data-role="openai-api-key"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="sk-..."
+                        aria-label="OpenAI API token"
+                    />
+                </label>
+                <label class="gp-field">
+                    <span class="gp-field__label">Модель OpenAI</span>
+                    <select
+                        class="gp-select"
+                        data-role="openai-model"
+                        aria-label="Модель OpenAI"
+                    ></select>
+                </label>
             </div>
-            <p class="gp-hint">Значение подставляется в фильтр GetPhotos при открытии панели.</p>
+            <p class="gp-hint">Ширина подставляется в фильтр GetPhotos. Токен и модель сохраняются локально для будущих запросов к OpenAI API.</p>
             <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
         </div>
     </section>
     <script src="../assets/vendor/bootstrap.bundle.min.js"></script>
+    <script src="../src/services/openaiConfig.js"></script>
     <script src="../src/sidepanel.js"></script>
 </body>
 </html>

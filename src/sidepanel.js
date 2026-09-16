@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * State lives in this document and survives tab switches.
- * @version 1.3
+ * @version 1.4
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -54,8 +54,11 @@ const ICON_DELETE_FOREVER = `
 
 const dimensionsCache = new Map();
 
-/** @type {{ defaultMinWidth: number }} */
-let appSettings = { defaultMinWidth: DEFAULT_MIN_WIDTH };
+/** @type {{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }} */
+let appSettings = {
+    defaultMinWidth: DEFAULT_MIN_WIDTH,
+    ...GpOpenAiConfig.getDefaultOpenAiSettings()
+};
 
 window.gpSidePanelReady = bootstrapSidePanel();
 
@@ -271,22 +274,38 @@ function initSettingsTool(root) {
     }
 
     const defaultMinWidthInput = root.querySelector('[data-role="default-min-width"]');
+    const openaiApiKeyInput = root.querySelector('[data-role="openai-api-key"]');
+    const openaiModelSelect = root.querySelector('[data-role="openai-model"]');
     const status = root.querySelector('[data-role="status"]');
 
     applyDefaultMinWidth(defaultMinWidthInput, appSettings.defaultMinWidth);
+    openaiApiKeyInput.value = appSettings.openaiApiKey;
+    GpOpenAiConfig.populateOpenAiModelSelect(openaiModelSelect, appSettings.openaiModel);
 
-    const persistDefaultMinWidth = async () => {
-        const value = normalizeMinWidthValue(defaultMinWidthInput.value) ?? DEFAULT_MIN_WIDTH;
-
-        applyDefaultMinWidth(defaultMinWidthInput, value);
-        appSettings = { ...appSettings, defaultMinWidth: value };
+    const persistSettings = async (patch) => {
+        appSettings = { ...appSettings, ...patch };
         await saveSettings(appSettings);
-        syncPhotosMinWidth(value);
         updateStatus(status, 'Настройки сохранены.');
     };
 
     defaultMinWidthInput.addEventListener('change', () => {
-        void persistDefaultMinWidth();
+        const value = normalizeMinWidthValue(defaultMinWidthInput.value) ?? DEFAULT_MIN_WIDTH;
+
+        applyDefaultMinWidth(defaultMinWidthInput, value);
+        syncPhotosMinWidth(value);
+        void persistSettings({ defaultMinWidth: value });
+    });
+
+    openaiApiKeyInput.addEventListener('change', () => {
+        const openaiApiKey = GpOpenAiConfig.normalizeOpenAiApiKey(openaiApiKeyInput.value);
+        openaiApiKeyInput.value = openaiApiKey;
+        void persistSettings({ openaiApiKey });
+    });
+
+    openaiModelSelect.addEventListener('change', () => {
+        const openaiModel = GpOpenAiConfig.normalizeOpenAiModel(openaiModelSelect.value);
+        openaiModelSelect.value = openaiModel;
+        void persistSettings({ openaiModel });
     });
 }
 
@@ -890,7 +909,10 @@ function normalizeMinWidthValue(rawValue) {
 }
 
 async function loadSettings() {
-    const fallback = { defaultMinWidth: DEFAULT_MIN_WIDTH };
+    const fallback = {
+        defaultMinWidth: DEFAULT_MIN_WIDTH,
+        ...GpOpenAiConfig.getDefaultOpenAiSettings()
+    };
 
     try {
         if (!chrome?.storage?.local?.get) {
@@ -901,7 +923,10 @@ async function loadSettings() {
         const stored = data?.[SETTINGS_STORAGE_KEY] || {};
         const defaultMinWidth = normalizeMinWidthValue(stored.defaultMinWidth) ?? DEFAULT_MIN_WIDTH;
 
-        return { defaultMinWidth };
+        return {
+            defaultMinWidth,
+            ...GpOpenAiConfig.mergeOpenAiSettings(stored)
+        };
     } catch (error) {
         console.error('GetPhotos: unable to load settings', error);
         return fallback;
