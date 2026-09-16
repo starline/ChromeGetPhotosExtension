@@ -1,11 +1,17 @@
 /**
  * Service worker: opens native Chrome side panel and collects data from the active tab.
  * Side panel is global (one shared document across tabs) — do not setOptions with tabId.
- * @version 1.9
+ * @version 2.0
  */
 
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
+const COLLECT_ERROR_MESSAGE = 'Не удалось прочитать страницу. Обновите вкладку и попробуйте снова.';
 const SIDE_PANEL_PATH = 'templates/sidepanel.html';
+
+const MESSAGE_HANDLERS = {
+    COLLECT_IMAGES: (message) => collectImagesFromActiveTab(message.minWidth),
+    COLLECT_PRODUCTS: () => collectProductsFromActiveTab()
+};
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
     console.error('GetPhotos: failed to set side panel behavior', error);
@@ -57,32 +63,27 @@ chrome.tabs.query({})
     });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'COLLECT_IMAGES') {
-        collectImagesFromActiveTab(message.minWidth)
-            .then((result) => sendResponse(result))
-            .catch((error) => {
-                console.error('GetPhotos: collect failed', error);
-                sendResponse({ ok: false, error: SERVICE_PAGE_WARNING });
-            });
-        return true;
+    const handler = MESSAGE_HANDLERS[message?.type];
+    if (!handler) {
+        return undefined;
     }
 
-    if (message?.type === 'COLLECT_PRODUCTS') {
-        collectProductsFromActiveTab()
-            .then((result) => sendResponse(result))
-            .catch((error) => {
-                console.error('GetProducts: collect failed', error);
-                sendResponse({ ok: false, error: SERVICE_PAGE_WARNING });
-            });
-        return true;
-    }
+    handler(message)
+        .then((result) => sendResponse(result))
+        .catch((error) => {
+            console.error(`GetPhotos: ${message.type} failed`, error);
+            sendResponse({ ok: false, error: COLLECT_ERROR_MESSAGE });
+        });
 
-    return undefined;
+    return true;
 });
 
-async function collectImagesFromActiveTab(minWidth) {
+/**
+ * Resolve active tab and run a page collector. Shared guard for service pages.
+ * @param {(tab: chrome.tabs.Tab) => Promise<Record<string, unknown>>} collector
+ */
+async function collectFromActiveTab(collector) {
     const tab = await getActiveTab();
-    const minWidthPx = Number.isFinite(minWidth) && minWidth > 0 ? minWidth : 0;
 
     if (!tab?.id || !tab.url) {
         return { ok: false, error: SERVICE_PAGE_WARNING };
@@ -93,43 +94,43 @@ async function collectImagesFromActiveTab(minWidth) {
         return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
     }
 
-    const [{ result: links } = {}] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: collectImageLinksInPage,
-        args: [minWidthPx]
-    });
+    try {
+        const payload = await collector(tab);
+        return {
+            ok: true,
+            ...payload,
+            pageUrl: tab.url,
+            pageTitle: tab.title || ''
+        };
+    } catch (error) {
+        console.error('GetPhotos: page collect failed', error);
+        return { ok: false, error: COLLECT_ERROR_MESSAGE, pageUrl: tab.url };
+    }
+}
 
-    return {
-        ok: true,
-        links: Array.isArray(links) ? links : [],
-        pageUrl: tab.url,
-        pageTitle: tab.title || ''
-    };
+async function collectImagesFromActiveTab(minWidth) {
+    const minWidthPx = Number.isFinite(minWidth) && minWidth > 0 ? minWidth : 0;
+
+    return collectFromActiveTab(async (tab) => {
+        const [{ result: links } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: collectImageLinksInPage,
+            args: [minWidthPx]
+        });
+
+        return { links: Array.isArray(links) ? links : [] };
+    });
 }
 
 async function collectProductsFromActiveTab() {
-    const tab = await getActiveTab();
+    return collectFromActiveTab(async (tab) => {
+        const [{ result: products } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: collectProductsInPage
+        });
 
-    if (!tab?.id || !tab.url) {
-        return { ok: false, error: SERVICE_PAGE_WARNING };
-    }
-
-    if (isServicePage(tab.url)) {
-        await syncExtensionAvailability(tab.id, tab.url);
-        return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
-    }
-
-    const [{ result: products } = {}] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: collectProductsInPage
+        return { products: Array.isArray(products) ? products : [] };
     });
-
-    return {
-        ok: true,
-        products: Array.isArray(products) ? products : [],
-        pageUrl: tab.url,
-        pageTitle: tab.title || ''
-    };
 }
 
 async function getActiveTab() {

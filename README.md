@@ -37,6 +37,7 @@ On browser service pages (`chrome://`, `edge://`, `about:`, DevTools, etc.) the 
 - `src/background.js` — service worker; side panel behavior, image collection, Taobao product parsing.
 - `src/sidepanel.js` — side panel UI (tool switcher, settings, lists, filters, sort by image size / price / sales, copy link/image, open in new/same tab, highlight product open in active tab, collect product photos into cell thumbnails, remove from list, Bootstrap tooltips).
 - `src/services/openaiConfig.js` — OpenAI settings helpers (model list, normalize, `GpOpenAiConfig` for future API use).
+- `src/services/settingsStore.js` — app settings persistence (`chrome.storage.local`: default min width + OpenAI fields).
 - `templates/sidepanel.html`, `assets/panel.css` — side panel page and styles.
 - `assets/vendor/bootstrap.bundle.min.js` — Bootstrap 5 (tooltips only; local for MV3 CSP).
 - `templates/dev-preview.html` — browser preview with mocked Chrome APIs and fake Photos/Products data.

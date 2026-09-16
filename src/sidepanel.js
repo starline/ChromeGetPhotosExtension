@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * State lives in this document — one shared global panel across browser tabs.
- * @version 1.9
+ * @version 2.0
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -9,8 +9,7 @@ const COPY_IMAGE_SUCCESS_MESSAGE = 'Изображение скопирован�
 const COPY_ERROR_MESSAGE = 'Не удалось скопировать.';
 const REMOVE_IMAGE_SUCCESS_MESSAGE = 'Изображение удалено из списка.';
 const REMOVE_PRODUCT_SUCCESS_MESSAGE = 'Товар удалён из списка.';
-const DEFAULT_MIN_WIDTH = 500;
-const SETTINGS_STORAGE_KEY = 'gpSettings';
+const DEFAULT_MIN_WIDTH = GpSettingsStore.DEFAULT_MIN_WIDTH;
 
 const ICON_LINK = `
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -55,15 +54,12 @@ const ICON_DELETE_FOREVER = `
 const dimensionsCache = new Map();
 
 /** @type {{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }} */
-let appSettings = {
-    defaultMinWidth: DEFAULT_MIN_WIDTH,
-    ...GpOpenAiConfig.getDefaultOpenAiSettings()
-};
+let appSettings = GpSettingsStore.getDefaultSettings();
 
 window.gpSidePanelReady = bootstrapSidePanel();
 
 async function bootstrapSidePanel() {
-    appSettings = await loadSettings();
+    appSettings = await GpSettingsStore.loadSettings();
     initToolSwitcher();
     initPhotosTool(document.querySelector('[data-tool-panel="photos"]'));
     initProductsTool(document.querySelector('[data-tool-panel="products"]'));
@@ -109,6 +105,11 @@ function initPhotosTool(root) {
     const sortBar = root.querySelector('[data-role="sort"]');
     const sortButton = root.querySelector('[data-sort="size"]');
 
+    if (!collectButton || !minWidthInput || !emptyState || !counter || !list || !sourceLabel || !status) {
+        console.error('GetPhotos: photos tool markup is incomplete');
+        return;
+    }
+
     let lastLinks = [];
     let sortField = null;
     let sortDirection = 'desc';
@@ -120,6 +121,7 @@ function initPhotosTool(root) {
         collectButton.disabled = true;
 
         try {
+            // Collect all page images; min-width is applied client-side (lazy imgs often have naturalWidth 0 in DOM)
             const response = await chrome.runtime.sendMessage({ type: 'COLLECT_IMAGES' });
 
             if (!response?.ok) {
@@ -132,7 +134,7 @@ function initPhotosTool(root) {
                 return;
             }
 
-            lastLinks = response.links;
+            lastLinks = Array.isArray(response.links) ? response.links : [];
             updateStatus(status, '');
             setSource(sourceLabel, response.pageUrl, response.pageTitle);
             await refreshLinksList();
@@ -238,26 +240,34 @@ async function sortLinksBySize(links, sortField, sortDirection) {
     );
 
     return details
-        .sort((left, right) => {
-            const leftValid = Number.isFinite(left.area);
-            const rightValid = Number.isFinite(right.area);
-
-            if (!leftValid && !rightValid) {
-                return 0;
-            }
-            if (!leftValid) {
-                return 1;
-            }
-            if (!rightValid) {
-                return -1;
-            }
-            if (left.area === right.area) {
-                return 0;
-            }
-
-            return left.area > right.area ? direction : -direction;
-        })
+        .sort((left, right) => compareNullableNumbers(left.area, right.area, direction))
         .map(({ link }) => link);
+}
+
+/**
+ * Sort comparator for optional numeric fields. Invalid values sink to the end.
+ * @param {number} left
+ * @param {number} right
+ * @param {1|-1} direction
+ */
+function compareNullableNumbers(left, right, direction) {
+    const leftValid = Number.isFinite(left);
+    const rightValid = Number.isFinite(right);
+
+    if (!leftValid && !rightValid) {
+        return 0;
+    }
+    if (!leftValid) {
+        return 1;
+    }
+    if (!rightValid) {
+        return -1;
+    }
+    if (left === right) {
+        return 0;
+    }
+
+    return left > right ? direction : -direction;
 }
 
 function getImageArea(dimensions) {
@@ -278,18 +288,23 @@ function initSettingsTool(root) {
     const openaiModelSelect = root.querySelector('[data-role="openai-model"]');
     const status = root.querySelector('[data-role="status"]');
 
+    if (!defaultMinWidthInput || !openaiApiKeyInput || !openaiModelSelect || !status) {
+        console.error('GetPhotos: settings tool markup is incomplete');
+        return;
+    }
+
     applyDefaultMinWidth(defaultMinWidthInput, appSettings.defaultMinWidth);
     openaiApiKeyInput.value = appSettings.openaiApiKey;
     GpOpenAiConfig.populateOpenAiModelSelect(openaiModelSelect, appSettings.openaiModel);
 
     const persistSettings = async (patch) => {
         appSettings = { ...appSettings, ...patch };
-        await saveSettings(appSettings);
+        await GpSettingsStore.saveSettings(appSettings);
         updateStatus(status, 'Настройки сохранены.');
     };
 
     defaultMinWidthInput.addEventListener('change', () => {
-        const value = normalizeMinWidthValue(defaultMinWidthInput.value) ?? DEFAULT_MIN_WIDTH;
+        const value = GpSettingsStore.normalizeMinWidthValue(defaultMinWidthInput.value) ?? DEFAULT_MIN_WIDTH;
 
         applyDefaultMinWidth(defaultMinWidthInput, value);
         syncPhotosMinWidth(value);
@@ -322,6 +337,11 @@ function initProductsTool(root) {
     const status = root.querySelector('[data-role="status"]');
     const sortBar = root.querySelector('[data-role="sort"]');
     const sortButtons = Array.from(root.querySelectorAll('[data-sort]'));
+
+    if (!collectButton || !emptyState || !counter || !list || !sourceLabel || !status) {
+        console.error('GetPhotos: products tool markup is incomplete');
+        return;
+    }
 
     let lastProducts = [];
     let sortField = null;
@@ -402,28 +422,9 @@ function initProductsTool(root) {
         const direction = sortDirection === 'asc' ? 1 : -1;
         const parseValue = sortField === 'sales' ? parseSalesValue : parsePriceValue;
 
-        return products.slice().sort((left, right) => {
-            const leftValue = parseValue(left[sortField]);
-            const rightValue = parseValue(right[sortField]);
-            const leftValid = Number.isFinite(leftValue);
-            const rightValid = Number.isFinite(rightValue);
-
-            if (!leftValid && !rightValid) {
-                return 0;
-            }
-            if (!leftValid) {
-                return 1;
-            }
-            if (!rightValid) {
-                return -1;
-            }
-
-            if (leftValue === rightValue) {
-                return 0;
-            }
-
-            return leftValue > rightValue ? direction : -direction;
-        });
+        return products.slice().sort((left, right) =>
+            compareNullableNumbers(parseValue(left[sortField]), parseValue(right[sortField]), direction)
+        );
     }
 
     function syncSortButtons() {
@@ -682,11 +683,9 @@ function createCollectProductPhotosButton(product, photosGallery, status) {
         updateStatus(status, 'Собираем фотографии со страницы товара...');
 
         try {
+            // Same as GetPhotos: collect all, then filter by intrinsic width client-side
             const minWidth = getSettingsMinWidth();
-            const response = await chrome.runtime.sendMessage({
-                type: 'COLLECT_IMAGES',
-                minWidth
-            });
+            const response = await chrome.runtime.sendMessage({ type: 'COLLECT_IMAGES' });
 
             if (!response?.ok) {
                 product.photos = [];
@@ -707,7 +706,7 @@ function createCollectProductPhotosButton(product, photosGallery, status) {
 
             updateStatus(
                 status,
-                `Собрано ${formatCount(filtered.length, ['фотография', 'фотографии', 'фотографий'])} (≥${minWidth}px).`
+                `Собрано ${filtered.length} ${pluralizeRu(filtered.length, ['фотография', 'фотографии', 'фотографий'])} (≥${minWidth}px).`
             );
         } catch (error) {
             console.error('GetProducts: unable to collect product photos', error);
@@ -1006,55 +1005,8 @@ function syncPhotosMinWidth(value) {
     photosMinWidthInput.dispatchEvent(new Event('change'));
 }
 
-function normalizeMinWidthValue(rawValue) {
-    const value = Number.parseInt(rawValue, 10);
-
-    if (!Number.isFinite(value) || value < 0) {
-        return null;
-    }
-
-    return value;
-}
-
-async function loadSettings() {
-    const fallback = {
-        defaultMinWidth: DEFAULT_MIN_WIDTH,
-        ...GpOpenAiConfig.getDefaultOpenAiSettings()
-    };
-
-    try {
-        if (!chrome?.storage?.local?.get) {
-            return fallback;
-        }
-
-        const data = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
-        const stored = data?.[SETTINGS_STORAGE_KEY] || {};
-        const defaultMinWidth = normalizeMinWidthValue(stored.defaultMinWidth) ?? DEFAULT_MIN_WIDTH;
-
-        return {
-            defaultMinWidth,
-            ...GpOpenAiConfig.mergeOpenAiSettings(stored)
-        };
-    } catch (error) {
-        console.error('GetPhotos: unable to load settings', error);
-        return fallback;
-    }
-}
-
-async function saveSettings(settings) {
-    try {
-        if (!chrome?.storage?.local?.set) {
-            return;
-        }
-
-        await chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settings });
-    } catch (error) {
-        console.error('GetPhotos: unable to save settings', error);
-    }
-}
-
 function getMinWidthValue(input) {
-    const value = normalizeMinWidthValue(input.value);
+    const value = GpSettingsStore.normalizeMinWidthValue(input.value);
 
     if (value === null || value <= 0) {
         return null;
@@ -1185,16 +1137,26 @@ async function getImageSize(link) {
     }
 }
 
-function formatCount(count, forms) {
+/**
+ * Russian plural form for a count: 1 изображение / 2 изображения / 5 изображений.
+ * @param {number} count
+ * @param {[string, string, string]} forms
+ */
+function pluralizeRu(count, forms) {
     const mod10 = count % 10;
     const mod100 = count % 100;
-    let form = forms[2];
 
     if (mod10 === 1 && mod100 !== 11) {
-        form = forms[0];
-    } else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-        form = forms[1];
+        return forms[0];
     }
 
-    return `Найдено ${count} ${form}`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+        return forms[1];
+    }
+
+    return forms[2];
+}
+
+function formatCount(count, forms) {
+    return `Найдено ${count} ${pluralizeRu(count, forms)}`;
 }
