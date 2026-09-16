@@ -1,4 +1,4 @@
-/* @version 1.3 */
+/* @version 1.6 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -339,11 +339,19 @@ body {
 
 .gp-item {
     display: flex;
-    gap: 12px;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
     box-sizing: border-box;
     width: 100%;
     padding: 8px;
+}
+
+.gp-item-main {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    width: 100%;
 }
 
 .gp-item + .gp-item {
@@ -362,6 +370,58 @@ body {
     .gp-item.is-open-tab {
         background-color: #5c5420;
     }
+}
+
+/* Collect photos — only for the product open in the active tab */
+.gp-actions-row.gp-product-photos-actions {
+    display: none;
+}
+
+.gp-item.is-open-tab .gp-actions-row.gp-product-photos-actions {
+    display: flex;
+}
+
+.gp-product-photos-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.gp-product-photos {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 6px;
+    width: 100%;
+}
+
+.gp-product-photo-thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface-muted);
+    cursor: pointer;
+}
+
+.gp-product-photo-thumb:hover {
+    border-color: var(--primary);
+}
+
+.gp-product-photo-thumb:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.16);
+}
+
+.gp-product-photo-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .gp-preview {

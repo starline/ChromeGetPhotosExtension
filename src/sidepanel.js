@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
- * State lives in this document and survives tab switches.
- * @version 1.4
+ * State lives in this document — one shared global panel across browser tabs.
+ * @version 1.9
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -564,6 +564,9 @@ function createImageRow(link, status, onRemove) {
     const item = document.createElement('li');
     item.className = 'gp-item';
 
+    const main = document.createElement('div');
+    main.className = 'gp-item-main';
+
     const preview = document.createElement('img');
     preview.src = link;
     preview.alt = 'Превью изображения';
@@ -589,7 +592,8 @@ function createImageRow(link, status, onRemove) {
     );
 
     content.append(meta, actions);
-    item.append(preview, content);
+    main.append(preview, content);
+    item.append(main);
     hydrateMeta(link, meta);
 
     return item;
@@ -601,6 +605,9 @@ function createProductRow(product, status, onRemove) {
     if (product.url) {
         item.dataset.productUrl = product.url;
     }
+
+    const main = document.createElement('div');
+    main.className = 'gp-item-main';
 
     const preview = document.createElement('img');
     preview.src = product.image || '';
@@ -634,6 +641,10 @@ function createProductRow(product, status, onRemove) {
 
     stats.append(price, sales);
 
+    const photosGallery = document.createElement('div');
+    photosGallery.className = 'gp-product-photos gp-hidden';
+    photosGallery.setAttribute('data-role', 'product-photos');
+
     const actions = document.createElement('div');
     actions.className = 'gp-actions-row';
     actions.append(
@@ -643,10 +654,107 @@ function createProductRow(product, status, onRemove) {
         createRemoveButton(onRemove)
     );
 
-    content.append(title, stats, actions);
-    item.append(preview, content);
+    const photosActions = document.createElement('div');
+    photosActions.className = 'gp-actions-row gp-product-photos-actions';
+    photosActions.append(createCollectProductPhotosButton(product, photosGallery, status));
+
+    content.append(title, stats, actions, photosActions);
+    main.append(preview, content);
+    item.append(main, photosGallery);
+
+    if (Array.isArray(product.photos) && product.photos.length) {
+        renderProductPhotoTiles(photosGallery, product.photos);
+    }
 
     return item;
+}
+
+/** Visible only for the product open in the active tab (see .is-open-tab). */
+function createCollectProductPhotosButton(product, photosGallery, status) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'gp-secondary gp-product-photos-btn';
+    button.textContent = 'Фотографии';
+    button.title = 'Собрать фотографии со страницы товара';
+    button.setAttribute('aria-label', 'Собрать фотографии со страницы товара');
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        updateStatus(status, 'Собираем фотографии со страницы товара...');
+
+        try {
+            const minWidth = getSettingsMinWidth();
+            const response = await chrome.runtime.sendMessage({
+                type: 'COLLECT_IMAGES',
+                minWidth
+            });
+
+            if (!response?.ok) {
+                product.photos = [];
+                renderProductPhotoTiles(photosGallery, []);
+                updateStatus(status, response?.error || 'Не удалось получить фотографии.', true);
+                return;
+            }
+
+            const links = Array.isArray(response.links) ? response.links : [];
+            const filtered = await filterLinksByMinWidth(links, minWidth);
+            product.photos = filtered;
+            renderProductPhotoTiles(photosGallery, filtered);
+
+            if (!filtered.length) {
+                updateStatus(status, `Нет фотографий шире ${minWidth}px (настройка).`, true);
+                return;
+            }
+
+            updateStatus(
+                status,
+                `Собрано ${formatCount(filtered.length, ['фотография', 'фотографии', 'фотографий'])} (≥${minWidth}px).`
+            );
+        } catch (error) {
+            console.error('GetProducts: unable to collect product photos', error);
+            updateStatus(status, 'Не удалось получить фотографии.', true);
+        } finally {
+            button.disabled = false;
+        }
+    });
+    enableBootstrapTooltip(button);
+    return button;
+}
+
+/** Square thumbnail grid inside the product cell. */
+function renderProductPhotoTiles(container, links) {
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+
+    if (!Array.isArray(links) || !links.length) {
+        container.classList.add('gp-hidden');
+        return;
+    }
+
+    container.classList.remove('gp-hidden');
+
+    links.forEach((link) => {
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'gp-product-photo-thumb';
+        thumb.title = 'Открыть изображение';
+        thumb.setAttribute('aria-label', 'Открыть изображение');
+
+        const img = document.createElement('img');
+        img.src = link;
+        img.alt = '';
+        img.loading = 'lazy';
+
+        thumb.appendChild(img);
+        thumb.addEventListener('click', () => {
+            chrome.tabs.create({ url: link }).catch((error) => {
+                console.error('GetPhotos: unable to open product photo', error);
+            });
+        });
+        container.appendChild(thumb);
+    });
 }
 
 function createCopyLinkButton(value, status, disabled = false) {
@@ -953,6 +1061,12 @@ function getMinWidthValue(input) {
     }
 
     return value;
+}
+
+/** Default min image width from Settings (always a positive number). */
+function getSettingsMinWidth() {
+    const value = Number(appSettings.defaultMinWidth);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_MIN_WIDTH;
 }
 
 async function filterLinksByMinWidth(links, minWidth) {

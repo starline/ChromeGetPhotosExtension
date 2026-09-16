@@ -1,6 +1,7 @@
 /**
  * Service worker: opens native Chrome side panel and collects data from the active tab.
- * @version 1.6
+ * Side panel is global (one shared document across tabs) — do not setOptions with tabId.
+ * @version 1.9
  */
 
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
@@ -10,13 +11,22 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error
     console.error('GetPhotos: failed to set side panel behavior', error);
 });
 
+// One global panel instance — shared UI state across all browser tabs
+chrome.sidePanel.setOptions({
+    path: SIDE_PANEL_PATH,
+    enabled: true
+}).catch((error) => {
+    console.error('GetPhotos: failed to enable global side panel', error);
+});
+
 // Hide extension UI on chrome:// and other browser service pages
 chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
-    if (!tab.url) {
+    const url = resolveTabUrl(tab);
+    if (!url) {
         return;
     }
 
-    syncExtensionAvailability(tabId, tab.url).catch((error) => {
+    syncExtensionAvailability(tabId, url).catch((error) => {
         console.error('GetPhotos: failed to sync tab availability', error);
     });
 });
@@ -24,11 +34,12 @@ chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
 chrome.tabs.onActivated.addListener(({ tabId }) => {
     chrome.tabs.get(tabId)
         .then((tab) => {
-            if (!tab?.url) {
+            const url = resolveTabUrl(tab);
+            if (!url || tab.id == null) {
                 return;
             }
 
-            return syncExtensionAvailability(tab.id, tab.url);
+            return syncExtensionAvailability(tab.id, url);
         })
         .catch((error) => {
             console.error('GetPhotos: failed to sync active tab availability', error);
@@ -38,8 +49,8 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 chrome.tabs.query({})
     .then((tabs) => Promise.all(
         tabs
-            .filter((tab) => tab.id != null && tab.url)
-            .map((tab) => syncExtensionAvailability(tab.id, tab.url))
+            .filter((tab) => tab.id != null && resolveTabUrl(tab))
+            .map((tab) => syncExtensionAvailability(tab.id, resolveTabUrl(tab)))
     ))
     .catch((error) => {
         console.error('GetPhotos: failed to sync existing tabs', error);
@@ -47,7 +58,7 @@ chrome.tabs.query({})
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'COLLECT_IMAGES') {
-        collectImagesFromActiveTab()
+        collectImagesFromActiveTab(message.minWidth)
             .then((result) => sendResponse(result))
             .catch((error) => {
                 console.error('GetPhotos: collect failed', error);
@@ -69,8 +80,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return undefined;
 });
 
-async function collectImagesFromActiveTab() {
+async function collectImagesFromActiveTab(minWidth) {
     const tab = await getActiveTab();
+    const minWidthPx = Number.isFinite(minWidth) && minWidth > 0 ? minWidth : 0;
 
     if (!tab?.id || !tab.url) {
         return { ok: false, error: SERVICE_PAGE_WARNING };
@@ -83,7 +95,8 @@ async function collectImagesFromActiveTab() {
 
     const [{ result: links } = {}] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: collectImageLinksInPage
+        func: collectImageLinksInPage,
+        args: [minWidthPx]
     });
 
     return {
@@ -124,7 +137,7 @@ async function getActiveTab() {
     return tab;
 }
 
-function collectImageLinksInPage() {
+function collectImageLinksInPage(minWidthPx = 0) {
     const toAbsoluteUrl = (href) => {
         if (!href) {
             return null;
@@ -150,15 +163,28 @@ function collectImageLinksInPage() {
         }
     };
 
+    const meetsMinWidth = (img) => {
+        if (!minWidthPx) {
+            return true;
+        }
+
+        const width = img.naturalWidth || 0;
+        return width >= minWidthPx;
+    };
+
     const imageSources = Array.from(document.images)
+        .filter((img) => meetsMinWidth(img))
         .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
         .filter(Boolean);
 
-    const anchorImages = Array.from(document.querySelectorAll('a[href]'))
-        .map((link) => link.getAttribute('href'))
-        .filter((href) => isImageLink(href))
-        .map((href) => toAbsoluteUrl(href))
-        .filter(Boolean);
+    // Anchors have no intrinsic size in DOM — skip them when a min width is required
+    const anchorImages = minWidthPx
+        ? []
+        : Array.from(document.querySelectorAll('a[href]'))
+            .map((link) => link.getAttribute('href'))
+            .filter((href) => isImageLink(href))
+            .map((href) => toAbsoluteUrl(href))
+            .filter(Boolean);
 
     return Array.from(new Set([...imageSources, ...anchorImages]));
 }
@@ -385,25 +411,51 @@ function collectProductsInPage() {
 }
 
 /**
- * Enable side panel + action only on normal web pages; hide on browser service pages.
+ * Disable toolbar action on browser service pages. Do not use sidePanel.setOptions({ tabId }) —
+ * that creates a per-tab panel and remounts UI on every tab switch.
  */
 async function syncExtensionAvailability(tabId, url) {
     const service = isServicePage(url);
 
-    await chrome.sidePanel.setOptions({
-        tabId,
-        path: SIDE_PANEL_PATH,
-        enabled: !service
-    });
-
     if (service) {
         await chrome.action.disable(tabId);
         await chrome.action.setTitle({ title: SERVICE_PAGE_WARNING, tabId });
+        await closeSidePanelIfActive(tabId);
         return;
     }
 
     await chrome.action.enable(tabId);
     await chrome.action.setTitle({ title: 'GetPhotos', tabId });
+}
+
+/**
+ * Force-close a stuck panel when the active tab is a service page.
+ */
+async function closeSidePanelIfActive(tabId) {
+    if (typeof chrome.sidePanel.close !== 'function') {
+        return;
+    }
+
+    let tab;
+    try {
+        tab = await chrome.tabs.get(tabId);
+    } catch (error) {
+        return;
+    }
+
+    if (!tab?.active) {
+        return;
+    }
+
+    try {
+        await chrome.sidePanel.close({ tabId });
+    } catch (error) {
+        // Already closed, or only a global instance is open (setOptions handles hide).
+    }
+}
+
+function resolveTabUrl(tab) {
+    return tab?.url || tab?.pendingUrl || '';
 }
 
 function isServicePage(url) {
