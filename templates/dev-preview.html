@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- @version 0.7 -->
+    <!-- @version 0.9 -->
     <title>GetPhotos — Dev Preview</title>
     <link rel="stylesheet" href="../assets/panel.css" />
     <style>
@@ -620,7 +620,7 @@
     <script>
         /**
          * Mock Chrome extension APIs so the real sidepanel.js can run in a normal browser.
-         * @version 0.4
+         * @version 0.6
          */
         const FAKE_PHOTOS_PAGE = {
             pageUrl: 'https://shop110169991.world.taobao.com/category.htm',
@@ -682,6 +682,21 @@
         ];
 
         const mockStorage = Object.create(null);
+        const tabActivatedListeners = [];
+        const tabUpdatedListeners = [];
+        let mockActiveTab = { id: 1, url: FAKE_PRODUCTS_PAGE.pageUrl };
+
+        const setMockOmniboxUrl = (url) => {
+            const omnibox = document.querySelector('.browser__omnibox');
+            if (!omnibox || !url) {
+                return;
+            }
+
+            omnibox.title = url;
+            const lock = omnibox.querySelector('.browser__omnibox-lock');
+            omnibox.replaceChildren(lock || document.createElement('span'));
+            omnibox.append(` ${url.replace(/^https?:\/\//, '')}`);
+        };
 
         window.chrome = {
             runtime: {
@@ -732,6 +747,26 @@
                 create: async ({ url }) => {
                     window.open(url, '_blank', 'noopener,noreferrer');
                     return { id: Date.now() };
+                },
+                query: async () => [{ ...mockActiveTab }],
+                update: async (_tabId, { url }) => {
+                    mockActiveTab = { ...mockActiveTab, url };
+                    setMockOmniboxUrl(url);
+                    const changeInfo = { url, status: 'complete' };
+                    tabUpdatedListeners.forEach((listener) => {
+                        listener(mockActiveTab.id, changeInfo, { ...mockActiveTab });
+                    });
+                    return { ...mockActiveTab };
+                },
+                onActivated: {
+                    addListener: (listener) => {
+                        tabActivatedListeners.push(listener);
+                    }
+                },
+                onUpdated: {
+                    addListener: (listener) => {
+                        tabUpdatedListeners.push(listener);
+                    }
                 }
             }
         };

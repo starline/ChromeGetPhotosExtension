@@ -1,13 +1,49 @@
 /**
  * Service worker: opens native Chrome side panel and collects data from the active tab.
- * @version 1.3
+ * @version 1.6
  */
 
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
+const SIDE_PANEL_PATH = 'templates/sidepanel.html';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
     console.error('GetPhotos: failed to set side panel behavior', error);
 });
+
+// Hide extension UI on chrome:// and other browser service pages
+chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
+    if (!tab.url) {
+        return;
+    }
+
+    syncExtensionAvailability(tabId, tab.url).catch((error) => {
+        console.error('GetPhotos: failed to sync tab availability', error);
+    });
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+    chrome.tabs.get(tabId)
+        .then((tab) => {
+            if (!tab?.url) {
+                return;
+            }
+
+            return syncExtensionAvailability(tab.id, tab.url);
+        })
+        .catch((error) => {
+            console.error('GetPhotos: failed to sync active tab availability', error);
+        });
+});
+
+chrome.tabs.query({})
+    .then((tabs) => Promise.all(
+        tabs
+            .filter((tab) => tab.id != null && tab.url)
+            .map((tab) => syncExtensionAvailability(tab.id, tab.url))
+    ))
+    .catch((error) => {
+        console.error('GetPhotos: failed to sync existing tabs', error);
+    });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'COLLECT_IMAGES') {
@@ -40,10 +76,8 @@ async function collectImagesFromActiveTab() {
         return { ok: false, error: SERVICE_PAGE_WARNING };
     }
 
-    await resetBadge(tab.id);
-
     if (isServicePage(tab.url)) {
-        await warnServicePage(tab.id);
+        await syncExtensionAvailability(tab.id, tab.url);
         return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
     }
 
@@ -67,10 +101,8 @@ async function collectProductsFromActiveTab() {
         return { ok: false, error: SERVICE_PAGE_WARNING };
     }
 
-    await resetBadge(tab.id);
-
     if (isServicePage(tab.url)) {
-        await warnServicePage(tab.id);
+        await syncExtensionAvailability(tab.id, tab.url);
         return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
     }
 
@@ -206,30 +238,98 @@ function collectProductsInPage() {
         return 'Без названия';
     };
 
-    const pickPrice = (root) => {
-        const priceNode =
-            root.querySelector('[class*="price" i]') ||
-            root.querySelector('[class*="Price"]') ||
-            root.querySelector('.price');
+    // Taobao HOP cards: span.price > span.int = price, span.sales = "200+人付款"
+    const SALES_TAIL_RE = /([\d.]+[万wW]?[+＋]?)\s*(人付款|已售|sold)/i;
+    const SALES_LABELED_RE = /(月销|销量|已售|sold|Sales)[^\d]{0,8}([\d.]+[万wW]?[+＋]?)/i;
 
-        const text = cleanText(priceNode?.textContent);
-        if (!text) {
+    const extractSalesFromText = (text) => {
+        const normalized = cleanText(text);
+        if (!normalized) {
             return '';
         }
 
-        const match = text.match(/(¥|￥)?\s*[\d.,]+/);
-        return match ? match[0].replace(/\s+/g, '') : text.slice(0, 32);
+        const tail = normalized.match(SALES_TAIL_RE);
+        if (tail) {
+            return tail[1];
+        }
+
+        const labeled = normalized.match(SALES_LABELED_RE);
+        return labeled ? labeled[2] : '';
+    };
+
+    const stripSalesFromText = (text) =>
+        cleanText(text)
+            .replace(SALES_TAIL_RE, ' ')
+            .replace(SALES_LABELED_RE, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+    const pickPrice = (root) => {
+        // Prefer dedicated HOP nodes: span.price--… > span.int--…
+        const priceWrap =
+            root.querySelector('span[class*="price--"]') ||
+            root.querySelector('[class*="priceBlock"] [class*="price"]');
+
+        if (priceWrap) {
+            const intNode = priceWrap.querySelector('[class*="int--"], [class*="int"]');
+            if (intNode) {
+                const intPart = cleanText(intNode.textContent);
+                const floatPart = cleanText(
+                    priceWrap.querySelector('[class*="float--"], [class*="float"], [class*="decimal"]')
+                        ?.textContent || ''
+                );
+                const symbol = cleanText(
+                    priceWrap.querySelector('[class*="symbol"], [class*="yen"], [class*="currency"]')
+                        ?.textContent || ''
+                ) || '¥';
+
+                const number = `${intPart}${floatPart}`.replace(/\s+/g, '');
+                if (number) {
+                    return `${symbol}${number}`.replace(/\s+/g, '');
+                }
+            }
+        }
+
+        // Fallback: price block / generic price text (strip sales if glued)
+        const priceNode =
+            priceWrap ||
+            root.querySelector('[class*="priceBlock" i]') ||
+            root.querySelector('[class*="price" i]') ||
+            root.querySelector('.price');
+
+        const raw = cleanText(priceNode?.textContent);
+        if (!raw) {
+            return '';
+        }
+
+        const text = stripSalesFromText(raw);
+        const match =
+            text.match(/[¥￥]\s*[\d]+(?:\.[\d]+)?/) ||
+            text.match(/[\d]+(?:\.[\d]+)?/);
+
+        return match ? match[0].replace(/\s+/g, '') : '';
     };
 
     const pickSales = (root) => {
-        const text = cleanText(root.textContent);
-        const match = text.match(/(月销|销量|付款|已售|sold|Sales)[^\d]{0,8}([\d.]+[万wW]?[+＋]?)/i);
-        if (match) {
-            return match[2];
+        // Prefer dedicated HOP node: span.sales--…
+        const salesNode =
+            root.querySelector('span[class*="sales--"]') ||
+            root.querySelector('[class*="priceBlock"] [class*="sales"]') ||
+            root.querySelector('[class*="sales"]');
+
+        if (salesNode) {
+            const fromNode = extractSalesFromText(salesNode.textContent);
+            if (fromNode) {
+                return fromNode;
+            }
+
+            const raw = cleanText(salesNode.textContent);
+            if (raw) {
+                return raw;
+            }
         }
 
-        const loose = text.match(/([\d.]+[万wW]?[+＋]?)\s*(人付款|已售|sold)/i);
-        return loose ? loose[1] : '';
+        return extractSalesFromText(root.textContent);
     };
 
     const cardSelectors = [
@@ -284,21 +384,41 @@ function collectProductsInPage() {
     return products;
 }
 
-async function warnServicePage(tabId) {
-    await chrome.action.setBadgeBackgroundColor({ color: '#d93025', tabId });
-    await chrome.action.setBadgeText({ text: '!', tabId });
-    await chrome.action.setTitle({ title: SERVICE_PAGE_WARNING, tabId });
-}
+/**
+ * Enable side panel + action only on normal web pages; hide on browser service pages.
+ */
+async function syncExtensionAvailability(tabId, url) {
+    const service = isServicePage(url);
 
-async function resetBadge(tabId) {
-    await chrome.action.setBadgeText({ text: '', tabId });
+    await chrome.sidePanel.setOptions({
+        tabId,
+        path: SIDE_PANEL_PATH,
+        enabled: !service
+    });
+
+    if (service) {
+        await chrome.action.disable(tabId);
+        await chrome.action.setTitle({ title: SERVICE_PAGE_WARNING, tabId });
+        return;
+    }
+
+    await chrome.action.enable(tabId);
     await chrome.action.setTitle({ title: 'GetPhotos', tabId });
 }
 
 function isServicePage(url) {
     try {
         const parsed = new URL(url);
-        const blockedProtocols = new Set(['chrome:', 'edge:', 'about:', 'devtools:', 'chrome-extension:']);
+        const blockedProtocols = new Set([
+            'chrome:',
+            'edge:',
+            'about:',
+            'devtools:',
+            'chrome-extension:',
+            'chrome-search:',
+            'chrome-devtools:',
+            'view-source:'
+        ]);
         return blockedProtocols.has(parsed.protocol);
     } catch (error) {
         return true;

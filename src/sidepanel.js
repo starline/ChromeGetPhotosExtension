@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * State lives in this document and survives tab switches.
- * @version 1.1
+ * @version 1.3
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -31,6 +31,14 @@ const ICON_OPEN = `
         <path d="M14 3h7v7"></path>
         <path d="M10 14L21 3"></path>
         <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path>
+    </svg>
+`;
+
+const ICON_MONITOR = `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+        <path d="M8 21h8"></path>
+        <path d="M12 17v4"></path>
     </svg>
 `;
 
@@ -300,6 +308,25 @@ function initProductsTool(root) {
     let sortField = null;
     let sortDirection = 'asc';
 
+    const syncOpenTabHighlight = async () => {
+        const tabUrl = await getActiveTabUrl();
+        highlightOpenProductInList(list, tabUrl);
+    };
+
+    if (chrome.tabs?.onActivated?.addListener) {
+        chrome.tabs.onActivated.addListener(() => {
+            void syncOpenTabHighlight();
+        });
+    }
+
+    if (chrome.tabs?.onUpdated?.addListener) {
+        chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+            if (changeInfo.url || changeInfo.status === 'complete') {
+                void syncOpenTabHighlight();
+            }
+        });
+    }
+
     collectButton.addEventListener('click', async () => {
         updateStatus(status, 'Парсим товары на активной вкладке...');
         collectButton.disabled = true;
@@ -416,6 +443,7 @@ function initProductsTool(root) {
         syncSortButtons();
 
         products.forEach((product) => list.appendChild(createProductRow(product, status, () => removeProduct(product))));
+        void syncOpenTabHighlight();
     }
 
     function removeProduct(product) {
@@ -423,6 +451,63 @@ function initProductsTool(root) {
         updateStatus(status, REMOVE_PRODUCT_SUCCESS_MESSAGE);
         renderProducts(getSortedProducts(lastProducts));
     }
+}
+
+/** Active browser tab URL (empty when unavailable). */
+async function getActiveTabUrl() {
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        return tab?.url || '';
+    } catch (error) {
+        console.error('GetPhotos: unable to read active tab url', error);
+        return '';
+    }
+}
+
+/** Taobao / Tmall product id from query string. */
+function extractProductId(url) {
+    if (!url) {
+        return '';
+    }
+
+    try {
+        const id = new URL(url).searchParams.get('id');
+        return id && /^\d+$/.test(id) ? id : '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function isSameProductUrl(left, right) {
+    if (!left || !right) {
+        return false;
+    }
+
+    const leftId = extractProductId(left);
+    const rightId = extractProductId(right);
+    if (leftId && rightId) {
+        return leftId === rightId;
+    }
+
+    try {
+        const a = new URL(left);
+        const b = new URL(right);
+        return a.origin === b.origin && a.pathname === b.pathname && a.search === b.search;
+    } catch (error) {
+        return left === right;
+    }
+}
+
+/** Light-yellow highlight for the product open in the active tab. */
+function highlightOpenProductInList(list, tabUrl) {
+    if (!list) {
+        return;
+    }
+
+    list.querySelectorAll('.gp-item[data-product-url]').forEach((item) => {
+        const productUrl = item.dataset.productUrl || '';
+        item.classList.toggle('is-open-tab', isSameProductUrl(productUrl, tabUrl));
+    });
 }
 
 function parsePriceValue(price) {
@@ -494,6 +579,9 @@ function createImageRow(link, status, onRemove) {
 function createProductRow(product, status, onRemove) {
     const item = document.createElement('li');
     item.className = 'gp-item';
+    if (product.url) {
+        item.dataset.productUrl = product.url;
+    }
 
     const preview = document.createElement('img');
     preview.src = product.image || '';
@@ -531,6 +619,7 @@ function createProductRow(product, status, onRemove) {
     actions.className = 'gp-actions-row';
     actions.append(
         createCopyLinkButton(product.url || '', status, !product.url),
+        createOpenInSameTabButton(product.url || '', !product.url),
         createOpenButton(product.url || '', !product.url),
         createRemoveButton(onRemove)
     );
@@ -643,14 +732,37 @@ function createOpenButton(url, disabled = false) {
     const openButton = document.createElement('button');
     openButton.type = 'button';
     openButton.className = 'gp-secondary gp-icon-btn';
-    openButton.title = 'Открыть';
-    openButton.setAttribute('aria-label', 'Открыть');
+    openButton.title = 'Открыть в новой вкладке';
+    openButton.setAttribute('aria-label', 'Открыть в новой вкладке');
     openButton.innerHTML = ICON_OPEN;
     openButton.disabled = disabled;
     openButton.addEventListener('click', () => {
         chrome.tabs.create({ url }).catch((error) => {
             console.error('GetPhotos: unable to open url', error);
         });
+    });
+    enableBootstrapTooltip(openButton);
+    return openButton;
+}
+
+function createOpenInSameTabButton(url, disabled = false) {
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'gp-secondary gp-icon-btn';
+    openButton.title = 'Открыть в этой вкладке';
+    openButton.setAttribute('aria-label', 'Открыть в этой вкладке');
+    openButton.innerHTML = ICON_MONITOR;
+    openButton.disabled = disabled;
+    openButton.addEventListener('click', async () => {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab?.id) {
+                throw new Error('Active tab not found');
+            }
+            await chrome.tabs.update(tab.id, { url });
+        } catch (error) {
+            console.error('GetPhotos: unable to open url in current tab', error);
+        }
     });
     enableBootstrapTooltip(openButton);
     return openButton;
