@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- @version 1.4 -->
+    <!-- @version 1.5 -->
     <title>GetPhotos</title>
     <link rel="stylesheet" href="../assets/panel.css" />
 </head>
@@ -95,6 +95,14 @@
                 </label>
                 <button class="gp-primary" type="button" data-role="collect">Получить изображения</button>
             </div>
+            <div class="gp-persist" data-role="persist" role="group" aria-label="Сохранённый список изображений">
+                <button class="gp-secondary" type="button" data-role="export-csv" title="Экспортировать собранные ссылки в CSV">
+                    Экспорт CSV
+                </button>
+                <button class="gp-secondary gp-persist__clear" type="button" data-role="clear" title="Очистить сохранённый список изображений">
+                    Очистить
+                </button>
+            </div>
             <p class="gp-counter gp-hidden" data-role="counter" aria-live="polite"></p>
             <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
             <div class="gp-sort gp-hidden" data-role="sort" role="group" aria-label="Сортировка изображений">
@@ -126,6 +134,14 @@
             <p class="gp-source gp-hidden" data-role="source" aria-live="polite"></p>
             <div class="gp-actions">
                 <button class="gp-primary" type="button" data-role="collect">Получить товары</button>
+            </div>
+            <div class="gp-persist" data-role="persist" role="group" aria-label="Сохранённый список товаров">
+                <button class="gp-secondary" type="button" data-role="export-csv" title="Экспортировать собранные товары в CSV">
+                    Экспорт CSV
+                </button>
+                <button class="gp-secondary gp-persist__clear" type="button" data-role="clear" title="Очистить сохранённый список товаров">
+                    Очистить
+                </button>
             </div>
             <p class="gp-counter gp-hidden" data-role="counter" aria-live="polite"></p>
             <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
@@ -199,6 +215,8 @@
     <script src="../assets/vendor/bootstrap.bundle.min.js"></script>
     <script src="../src/services/openaiConfig.js"></script>
     <script src="../src/services/settingsStore.js"></script>
+    <script src="../src/services/collectionStore.js"></script>
+    <script src="../src/services/csvExport.js"></script>
     <script src="../src/sidepanel.js"></script>
 </body>
 </html>

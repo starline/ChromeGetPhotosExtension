@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
- * State lives in this document — one shared global panel across browser tabs.
- * @version 2.0
+ * Collections persist in chrome.storage.local and survive browser restarts.
+ * @version 2.2
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -9,6 +9,10 @@ const COPY_IMAGE_SUCCESS_MESSAGE = 'Изображение скопирован�
 const COPY_ERROR_MESSAGE = 'Не удалось скопировать.';
 const REMOVE_IMAGE_SUCCESS_MESSAGE = 'Изображение удалено из списка.';
 const REMOVE_PRODUCT_SUCCESS_MESSAGE = 'Товар удалён из списка.';
+const EXPORT_CSV_SUCCESS_MESSAGE = 'CSV-файл скачан.';
+const EXPORT_CSV_EMPTY_MESSAGE = 'Нет данных для экспорта.';
+const CLEAR_PHOTOS_SUCCESS_MESSAGE = 'Сохранённый список изображений очищен.';
+const CLEAR_PRODUCTS_SUCCESS_MESSAGE = 'Сохранённый список товаров очищен.';
 const DEFAULT_MIN_WIDTH = GpSettingsStore.DEFAULT_MIN_WIDTH;
 
 const ICON_LINK = `
@@ -61,8 +65,8 @@ window.gpSidePanelReady = bootstrapSidePanel();
 async function bootstrapSidePanel() {
     appSettings = await GpSettingsStore.loadSettings();
     initToolSwitcher();
-    initPhotosTool(document.querySelector('[data-tool-panel="photos"]'));
-    initProductsTool(document.querySelector('[data-tool-panel="products"]'));
+    await initPhotosTool(document.querySelector('[data-tool-panel="photos"]'));
+    await initProductsTool(document.querySelector('[data-tool-panel="products"]'));
     initSettingsTool(document.querySelector('[data-tool-panel="settings"]'));
     enableBootstrapTooltips(document);
 }
@@ -90,7 +94,7 @@ function initToolSwitcher() {
     });
 }
 
-function initPhotosTool(root) {
+async function initPhotosTool(root) {
     if (!root) {
         return;
     }
@@ -104,6 +108,8 @@ function initPhotosTool(root) {
     const status = root.querySelector('[data-role="status"]');
     const sortBar = root.querySelector('[data-role="sort"]');
     const sortButton = root.querySelector('[data-sort="size"]');
+    const exportButton = root.querySelector('[data-role="export-csv"]');
+    const clearButton = root.querySelector('[data-role="clear"]');
 
     if (!collectButton || !minWidthInput || !emptyState || !counter || !list || !sourceLabel || !status) {
         console.error('GetPhotos: photos tool markup is incomplete');
@@ -111,10 +117,22 @@ function initPhotosTool(root) {
     }
 
     let lastLinks = [];
+    let pageUrl = null;
+    let pageTitle = null;
+    let updatedAt = null;
     let sortField = null;
     let sortDirection = 'desc';
 
     applyDefaultMinWidth(minWidthInput, appSettings.defaultMinWidth);
+
+    const stored = await GpCollectionStore.loadPhotosCollection();
+    lastLinks = stored.links;
+    pageUrl = stored.pageUrl;
+    pageTitle = stored.pageTitle;
+    updatedAt = stored.updatedAt;
+    setSource(sourceLabel, pageUrl, pageTitle);
+    await refreshLinksList();
+    syncPersistButtons();
 
     collectButton.addEventListener('click', async () => {
         updateStatus(status, 'Сканируем активную вкладку...');
@@ -125,18 +143,19 @@ function initPhotosTool(root) {
             const response = await chrome.runtime.sendMessage({ type: 'COLLECT_IMAGES' });
 
             if (!response?.ok) {
-                lastLinks = [];
-                sortField = null;
-                sortDirection = 'desc';
-                renderLinks([], getMinWidthValue(minWidthInput));
-                setSource(sourceLabel, null);
                 updateStatus(status, response?.error || 'Не удалось получить изображения.', true);
                 return;
             }
 
             lastLinks = Array.isArray(response.links) ? response.links : [];
+            pageUrl = response.pageUrl || null;
+            pageTitle = response.pageTitle || null;
+            updatedAt = new Date().toISOString();
+            sortField = null;
+            sortDirection = 'desc';
+            await persistPhotos();
             updateStatus(status, '');
-            setSource(sourceLabel, response.pageUrl, response.pageTitle);
+            setSource(sourceLabel, pageUrl, pageTitle);
             await refreshLinksList();
         } catch (error) {
             console.error('GetPhotos: side panel collect failed', error);
@@ -170,6 +189,50 @@ function initPhotosTool(root) {
         await refreshLinksList();
     });
 
+    exportButton?.addEventListener('click', () => {
+        if (!lastLinks.length) {
+            updateStatus(status, EXPORT_CSV_EMPTY_MESSAGE, true);
+            return;
+        }
+
+        GpCsvExport.downloadPhotosCsv(lastLinks, { pageUrl, pageTitle, updatedAt });
+        updateStatus(status, EXPORT_CSV_SUCCESS_MESSAGE);
+    });
+
+    clearButton?.addEventListener('click', async () => {
+        lastLinks = [];
+        pageUrl = null;
+        pageTitle = null;
+        updatedAt = null;
+        sortField = null;
+        sortDirection = 'desc';
+        await GpCollectionStore.clearPhotosCollection();
+        syncPersistButtons();
+        setSource(sourceLabel, null);
+        renderLinks([], getMinWidthValue(minWidthInput));
+        updateStatus(status, CLEAR_PHOTOS_SUCCESS_MESSAGE);
+    });
+
+    async function persistPhotos() {
+        await GpCollectionStore.savePhotosCollection({
+            links: lastLinks,
+            pageUrl,
+            pageTitle,
+            updatedAt
+        });
+        syncPersistButtons();
+    }
+
+    function syncPersistButtons() {
+        const hasData = lastLinks.length > 0;
+        if (exportButton) {
+            exportButton.disabled = !hasData;
+        }
+        if (clearButton) {
+            clearButton.disabled = !hasData;
+        }
+    }
+
     async function refreshLinksList() {
         const minWidth = getMinWidthValue(minWidthInput);
         const filteredLinks = await filterLinksByMinWidth(lastLinks, minWidth);
@@ -195,9 +258,9 @@ function initPhotosTool(root) {
         list.innerHTML = '';
 
         if (!links.length) {
-            emptyState.textContent = minWidth
-                ? `Нет изображений шире ${minWidth}px.`
-                : 'На странице не найдено изображений.';
+            emptyState.textContent = lastLinks.length
+                ? (minWidth ? `Нет изображений шире ${minWidth}px.` : 'На странице не найдено изображений.')
+                : 'Список изображений появится здесь.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
             counter.textContent = '';
@@ -220,6 +283,7 @@ function initPhotosTool(root) {
     async function removeLink(link) {
         lastLinks = lastLinks.filter((item) => item !== link);
         dimensionsCache.delete(link);
+        await persistPhotos();
         updateStatus(status, REMOVE_IMAGE_SUCCESS_MESSAGE);
         await refreshLinksList();
     }
@@ -324,7 +388,7 @@ function initSettingsTool(root) {
     });
 }
 
-function initProductsTool(root) {
+async function initProductsTool(root) {
     if (!root) {
         return;
     }
@@ -337,6 +401,8 @@ function initProductsTool(root) {
     const status = root.querySelector('[data-role="status"]');
     const sortBar = root.querySelector('[data-role="sort"]');
     const sortButtons = Array.from(root.querySelectorAll('[data-sort]'));
+    const exportButton = root.querySelector('[data-role="export-csv"]');
+    const clearButton = root.querySelector('[data-role="clear"]');
 
     if (!collectButton || !emptyState || !counter || !list || !sourceLabel || !status) {
         console.error('GetPhotos: products tool markup is incomplete');
@@ -344,8 +410,20 @@ function initProductsTool(root) {
     }
 
     let lastProducts = [];
+    let pageUrl = null;
+    let pageTitle = null;
+    let updatedAt = null;
     let sortField = null;
     let sortDirection = 'asc';
+
+    const stored = await GpCollectionStore.loadProductsCollection();
+    lastProducts = stored.products;
+    pageUrl = stored.pageUrl;
+    pageTitle = stored.pageTitle;
+    updatedAt = stored.updatedAt;
+    setSource(sourceLabel, pageUrl, pageTitle);
+    renderProducts(getSortedProducts(lastProducts));
+    syncPersistButtons();
 
     const syncOpenTabHighlight = async () => {
         const tabUrl = await getActiveTabUrl();
@@ -374,18 +452,19 @@ function initProductsTool(root) {
             const response = await chrome.runtime.sendMessage({ type: 'COLLECT_PRODUCTS' });
 
             if (!response?.ok) {
-                lastProducts = [];
-                sortField = null;
-                sortDirection = 'asc';
-                renderProducts([]);
-                setSource(sourceLabel, null);
                 updateStatus(status, response?.error || 'Не удалось получить товары.', true);
                 return;
             }
 
-            updateStatus(status, '');
-            setSource(sourceLabel, response.pageUrl, response.pageTitle);
+            pageUrl = response.pageUrl || null;
+            pageTitle = response.pageTitle || null;
+            updatedAt = new Date().toISOString();
             lastProducts = Array.isArray(response.products) ? response.products : [];
+            sortField = null;
+            sortDirection = 'asc';
+            await persistProducts();
+            updateStatus(status, '');
+            setSource(sourceLabel, pageUrl, pageTitle);
             renderProducts(getSortedProducts(lastProducts));
         } catch (error) {
             console.error('GetProducts: side panel collect failed', error);
@@ -413,6 +492,50 @@ function initProductsTool(root) {
             renderProducts(getSortedProducts(lastProducts));
         });
     });
+
+    exportButton?.addEventListener('click', () => {
+        if (!lastProducts.length) {
+            updateStatus(status, EXPORT_CSV_EMPTY_MESSAGE, true);
+            return;
+        }
+
+        GpCsvExport.downloadProductsCsv(lastProducts, { pageUrl, pageTitle, updatedAt });
+        updateStatus(status, EXPORT_CSV_SUCCESS_MESSAGE);
+    });
+
+    clearButton?.addEventListener('click', async () => {
+        lastProducts = [];
+        pageUrl = null;
+        pageTitle = null;
+        updatedAt = null;
+        sortField = null;
+        sortDirection = 'asc';
+        await GpCollectionStore.clearProductsCollection();
+        syncPersistButtons();
+        setSource(sourceLabel, null);
+        renderProducts([]);
+        updateStatus(status, CLEAR_PRODUCTS_SUCCESS_MESSAGE);
+    });
+
+    async function persistProducts() {
+        await GpCollectionStore.saveProductsCollection({
+            products: lastProducts,
+            pageUrl,
+            pageTitle,
+            updatedAt
+        });
+        syncPersistButtons();
+    }
+
+    function syncPersistButtons() {
+        const hasData = lastProducts.length > 0;
+        if (exportButton) {
+            exportButton.disabled = !hasData;
+        }
+        if (clearButton) {
+            clearButton.disabled = !hasData;
+        }
+    }
 
     function getSortedProducts(products) {
         if (!sortField) {
@@ -445,7 +568,9 @@ function initProductsTool(root) {
         list.innerHTML = '';
 
         if (!products.length) {
-            emptyState.textContent = 'На странице не найдено товаров.';
+            emptyState.textContent = lastProducts.length
+                ? 'На странице не найдено товаров.'
+                : 'Список товаров появится здесь.';
             emptyState.classList.remove('gp-hidden');
             list.classList.add('gp-hidden');
             counter.textContent = '';
@@ -462,12 +587,18 @@ function initProductsTool(root) {
         sortBar?.classList.remove('gp-hidden');
         syncSortButtons();
 
-        products.forEach((product) => list.appendChild(createProductRow(product, status, () => removeProduct(product))));
+        products.forEach((product) => list.appendChild(createProductRow(
+            product,
+            status,
+            () => removeProduct(product),
+            () => persistProducts()
+        )));
         void syncOpenTabHighlight();
     }
 
-    function removeProduct(product) {
+    async function removeProduct(product) {
         lastProducts = lastProducts.filter((item) => item !== product);
+        await persistProducts();
         updateStatus(status, REMOVE_PRODUCT_SUCCESS_MESSAGE);
         renderProducts(getSortedProducts(lastProducts));
     }
@@ -600,7 +731,7 @@ function createImageRow(link, status, onRemove) {
     return item;
 }
 
-function createProductRow(product, status, onRemove) {
+function createProductRow(product, status, onRemove, onPersist) {
     const item = document.createElement('li');
     item.className = 'gp-item';
     if (product.url) {
@@ -657,7 +788,7 @@ function createProductRow(product, status, onRemove) {
 
     const photosActions = document.createElement('div');
     photosActions.className = 'gp-actions-row gp-product-photos-actions';
-    photosActions.append(createCollectProductPhotosButton(product, photosGallery, status));
+    photosActions.append(createCollectProductPhotosButton(product, photosGallery, status, onPersist));
 
     content.append(title, stats, actions, photosActions);
     main.append(preview, content);
@@ -671,7 +802,7 @@ function createProductRow(product, status, onRemove) {
 }
 
 /** Visible only for the product open in the active tab (see .is-open-tab). */
-function createCollectProductPhotosButton(product, photosGallery, status) {
+function createCollectProductPhotosButton(product, photosGallery, status, onPersist) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'gp-secondary gp-product-photos-btn';
@@ -690,6 +821,7 @@ function createCollectProductPhotosButton(product, photosGallery, status) {
             if (!response?.ok) {
                 product.photos = [];
                 renderProductPhotoTiles(photosGallery, []);
+                await onPersist?.();
                 updateStatus(status, response?.error || 'Не удалось получить фотографии.', true);
                 return;
             }
@@ -698,6 +830,7 @@ function createCollectProductPhotosButton(product, photosGallery, status) {
             const filtered = await filterLinksByMinWidth(links, minWidth);
             product.photos = filtered;
             renderProductPhotoTiles(photosGallery, filtered);
+            await onPersist?.();
 
             if (!filtered.length) {
                 updateStatus(status, `Нет фотографий шире ${minWidth}px (настройка).`, true);
@@ -954,7 +1087,8 @@ function enableBootstrapTooltip(element) {
     return new bootstrap.Tooltip(element, {
         container: 'body',
         placement: 'top',
-        trigger: 'hover focus'
+        // hover only: focus after click kept tooltips stuck until blur
+        trigger: 'hover'
     });
 }
 

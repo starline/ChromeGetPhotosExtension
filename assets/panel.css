@@ -1,4 +1,4 @@
-/* @version 1.6 */
+/* @version 1.7 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -147,6 +147,32 @@ body {
     gap: 12px;
     align-items: flex-end;
     flex-wrap: wrap;
+}
+
+.gp-persist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.gp-persist .gp-secondary {
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.gp-persist__clear {
+    color: #d93025;
+}
+
+.gp-persist__clear:hover:not(:disabled) {
+    border-color: #d93025;
+    color: #d93025;
+    box-shadow: 0 2px 8px rgba(217, 48, 37, 0.16);
+}
+
+.gp-persist__clear:focus-visible {
+    outline-color: #d93025;
 }
 
 .gp-field {
