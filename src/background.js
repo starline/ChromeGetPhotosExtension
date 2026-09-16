@@ -1,46 +1,288 @@
 /**
- * Service worker to render GetPhotos controls as an in-page side panel.
- * @version 1.1
+ * Service worker: opens native Chrome side panel and collects data from the active tab.
+ * @version 1.3
  */
 
-const PANEL_ID = 'getphotos-panel-root';
-const PANEL_TEMPLATE_PATH = 'templates/panel.html';
-const PANEL_STYLES_PATH = 'assets/panel.css';
 const SERVICE_PAGE_WARNING = 'Расширение недоступно на служебных страницах браузера.';
-const COPY_SUCCESS_MESSAGE = 'Ссылки скопированы в буфер обмена.';
-const COPY_ERROR_MESSAGE = 'Не удалось скопировать ссылки.';
 
-let panelTemplatePromise;
-let panelStylesPromise;
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+    console.error('GetPhotos: failed to set side panel behavior', error);
+});
 
-chrome.action.onClicked.addListener(async (tab) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'COLLECT_IMAGES') {
+        collectImagesFromActiveTab()
+            .then((result) => sendResponse(result))
+            .catch((error) => {
+                console.error('GetPhotos: collect failed', error);
+                sendResponse({ ok: false, error: SERVICE_PAGE_WARNING });
+            });
+        return true;
+    }
+
+    if (message?.type === 'COLLECT_PRODUCTS') {
+        collectProductsFromActiveTab()
+            .then((result) => sendResponse(result))
+            .catch((error) => {
+                console.error('GetProducts: collect failed', error);
+                sendResponse({ ok: false, error: SERVICE_PAGE_WARNING });
+            });
+        return true;
+    }
+
+    return undefined;
+});
+
+async function collectImagesFromActiveTab() {
+    const tab = await getActiveTab();
+
     if (!tab?.id || !tab.url) {
-        return;
+        return { ok: false, error: SERVICE_PAGE_WARNING };
     }
 
     await resetBadge(tab.id);
 
     if (isServicePage(tab.url)) {
         await warnServicePage(tab.id);
-        return;
+        return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
     }
 
-    try {
-        const [panelTemplate, panelStyles] = await Promise.all([
-            getPanelTemplate(),
-            getPanelStyles()
-        ]);
+    const [{ result: links } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: collectImageLinksInPage
+    });
 
-        await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            func: toggleSidePanel,
-            args: [PANEL_ID, panelTemplate, panelStyles]
-        });
-    } catch (error) {
-        console.error('GetPhotos: failed to toggle panel', error);
+    return {
+        ok: true,
+        links: Array.isArray(links) ? links : [],
+        pageUrl: tab.url,
+        pageTitle: tab.title || ''
+    };
+}
+
+async function collectProductsFromActiveTab() {
+    const tab = await getActiveTab();
+
+    if (!tab?.id || !tab.url) {
+        return { ok: false, error: SERVICE_PAGE_WARNING };
+    }
+
+    await resetBadge(tab.id);
+
+    if (isServicePage(tab.url)) {
         await warnServicePage(tab.id);
+        return { ok: false, error: SERVICE_PAGE_WARNING, pageUrl: tab.url };
     }
-});
+
+    const [{ result: products } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: collectProductsInPage
+    });
+
+    return {
+        ok: true,
+        products: Array.isArray(products) ? products : [],
+        pageUrl: tab.url,
+        pageTitle: tab.title || ''
+    };
+}
+
+async function getActiveTab() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab;
+}
+
+function collectImageLinksInPage() {
+    const toAbsoluteUrl = (href) => {
+        if (!href) {
+            return null;
+        }
+
+        try {
+            return new URL(href, location.href).toString();
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const isImageLink = (href) => {
+        if (!href) {
+            return false;
+        }
+
+        try {
+            const parsed = new URL(href, location.href);
+            return /\.(png|jpe?g|gif|webp|svg)$/i.test(parsed.pathname);
+        } catch (error) {
+            return false;
+        }
+    };
+
+    const imageSources = Array.from(document.images)
+        .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
+        .filter(Boolean);
+
+    const anchorImages = Array.from(document.querySelectorAll('a[href]'))
+        .map((link) => link.getAttribute('href'))
+        .filter((href) => isImageLink(href))
+        .map((href) => toAbsoluteUrl(href))
+        .filter(Boolean);
+
+    return Array.from(new Set([...imageSources, ...anchorImages]));
+}
+
+/**
+ * Best-effort Taobao / Tmall shop card scraper.
+ * DOM differs by layout; we normalize title, image, price, sales, and product URL.
+ */
+function collectProductsInPage() {
+    const toAbsoluteUrl = (href) => {
+        if (!href) {
+            return null;
+        }
+
+        try {
+            return new URL(href, location.href).toString();
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const cleanText = (value) => (value || '').replace(/\s+/g, ' ').trim();
+
+    const isProductUrl = (href) => {
+        if (!href) {
+            return false;
+        }
+
+        try {
+            const parsed = new URL(href, location.href);
+            const host = parsed.hostname;
+            const path = parsed.pathname;
+
+            return (
+                /(item\.taobao\.com|detail\.tmall\.com|detail\.tmall\.hk|chaoshi\.detail\.tmall\.com)$/i.test(host) ||
+                /[?&]id=\d+/i.test(parsed.search) ||
+                /\/item\.htm/i.test(path)
+            );
+        } catch (error) {
+            return false;
+        }
+    };
+
+    const pickImage = (root) => {
+        const img = root.querySelector('img');
+        if (!img) {
+            return '';
+        }
+
+        const raw =
+            img.getAttribute('data-src') ||
+            img.getAttribute('data-ks-lazyload') ||
+            img.currentSrc ||
+            img.src ||
+            '';
+
+        const absolute = toAbsoluteUrl(raw.startsWith('//') ? `https:${raw}` : raw);
+        return absolute || '';
+    };
+
+    const pickTitle = (root, fallbackLink) => {
+        const candidates = [
+            root.querySelector('[title]'),
+            root.querySelector('.title'),
+            root.querySelector('.item-name'),
+            root.querySelector('a[title]'),
+            fallbackLink
+        ].filter(Boolean);
+
+        for (const node of candidates) {
+            const text = cleanText(node.getAttribute?.('title') || node.textContent);
+            if (text && text.length > 2) {
+                return text;
+            }
+        }
+
+        return 'Без названия';
+    };
+
+    const pickPrice = (root) => {
+        const priceNode =
+            root.querySelector('[class*="price" i]') ||
+            root.querySelector('[class*="Price"]') ||
+            root.querySelector('.price');
+
+        const text = cleanText(priceNode?.textContent);
+        if (!text) {
+            return '';
+        }
+
+        const match = text.match(/(¥|￥)?\s*[\d.,]+/);
+        return match ? match[0].replace(/\s+/g, '') : text.slice(0, 32);
+    };
+
+    const pickSales = (root) => {
+        const text = cleanText(root.textContent);
+        const match = text.match(/(月销|销量|付款|已售|sold|Sales)[^\d]{0,8}([\d.]+[万wW]?[+＋]?)/i);
+        if (match) {
+            return match[2];
+        }
+
+        const loose = text.match(/([\d.]+[万wW]?[+＋]?)\s*(人付款|已售|sold)/i);
+        return loose ? loose[1] : '';
+    };
+
+    const cardSelectors = [
+        '.item',
+        '.shop-item',
+        '.J_TItems .item',
+        '[class*="Card--"]',
+        '[class*="itemCard"]',
+        '[data-spm*="item"]',
+        'a[href*="item.taobao.com"]',
+        'a[href*="detail.tmall.com"]',
+        'a[href*="item.htm"]'
+    ];
+
+    const roots = new Set();
+    cardSelectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((node) => roots.add(node));
+    });
+
+    const products = [];
+    const seen = new Set();
+
+    roots.forEach((node) => {
+        const link =
+            (node.matches?.('a[href]') && node) ||
+            node.querySelector('a[href*="item.taobao.com"], a[href*="detail.tmall.com"], a[href*="item.htm"]');
+
+        if (!link) {
+            return;
+        }
+
+        const url = toAbsoluteUrl(link.getAttribute('href'));
+        if (!url || !isProductUrl(url) || seen.has(url)) {
+            return;
+        }
+
+        const card = node.closest('.item, .shop-item, [class*="Card"], [class*="item"]') || node;
+        const title = pickTitle(card, link);
+        const image = pickImage(card);
+        const price = pickPrice(card);
+        const sales = pickSales(card);
+
+        // Skip bare navigation links without product signal
+        if (!image && !price && title === 'Без названия') {
+            return;
+        }
+
+        seen.add(url);
+        products.push({ title, image, price, sales, url });
+    });
+
+    return products;
+}
 
 async function warnServicePage(tabId) {
     await chrome.action.setBadgeBackgroundColor({ color: '#d93025', tabId });
@@ -61,349 +303,4 @@ function isServicePage(url) {
     } catch (error) {
         return true;
     }
-}
-
-async function loadAsset(path) {
-    const url = chrome.runtime.getURL(path);
-    const response = await fetch(url);
-
-    if (!response.ok) {
-        throw new Error(`GetPhotos: failed to load asset ${path}`);
-    }
-
-    return response.text();
-}
-
-async function getPanelTemplate() {
-    if (!panelTemplatePromise) {
-        panelTemplatePromise = loadAsset(PANEL_TEMPLATE_PATH);
-    }
-
-    return panelTemplatePromise;
-}
-
-async function getPanelStyles() {
-    if (!panelStylesPromise) {
-        panelStylesPromise = loadAsset(PANEL_STYLES_PATH);
-    }
-
-    return panelStylesPromise;
-}
-
-function toggleSidePanel(panelId, templateHtml, styles) {
-    const existing = document.getElementById(panelId);
-    if (existing) {
-        existing.remove();
-        return;
-    }
-
-    // Helpers are declared inside to avoid ReferenceError when script runs in the page context.
-    const collectImageLinks = () => {
-        const toAbsoluteUrl = (href) => {
-            if (!href) {
-                return null;
-            }
-
-            try {
-                return new URL(href, location.href).toString();
-            } catch (error) {
-                return null;
-            }
-        };
-
-        const isImageLink = (href) => {
-            if (!href) {
-                return false;
-            }
-
-            try {
-                const parsed = new URL(href, location.href);
-                return /\.(png|jpe?g|gif|webp|svg)$/i.test(parsed.pathname);
-            } catch (error) {
-                return false;
-            }
-        };
-
-        const imageSources = Array.from(document.images)
-            .map((img) => toAbsoluteUrl(img.currentSrc || img.src))
-            .filter(Boolean);
-
-        const anchorImages = Array.from(document.querySelectorAll('a[href]'))
-            .map((link) => link.getAttribute('href'))
-            .filter((href) => isImageLink(href))
-            .map((href) => toAbsoluteUrl(href))
-            .filter(Boolean);
-
-        const links = [...imageSources, ...anchorImages];
-        return Array.from(new Set(links));
-    };
-
-    const createLinkRow = (link, dimensionsCache) => {
-        const item = document.createElement('li');
-        item.className = 'gp-item';
-
-        const preview = document.createElement('img');
-        preview.src = link;
-        preview.alt = 'Превью изображения';
-        preview.width = 100;
-        preview.height = 100;
-        preview.loading = 'lazy';
-        preview.className = 'gp-preview';
-
-        const content = document.createElement('div');
-        content.className = 'gp-content';
-
-        const meta = document.createElement('div');
-        meta.className = 'gp-meta';
-        meta.textContent = 'Загружаем информацию...';
-
-        const actions = document.createElement('div');
-        actions.className = 'gp-actions-row';
-
-        const copyButton = document.createElement('button');
-        copyButton.type = 'button';
-        copyButton.className = 'gp-secondary';
-        copyButton.textContent = 'Копировать';
-        copyButton.addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(link);
-                updateStatus(COPY_SUCCESS_MESSAGE);
-            } catch (error) {
-                console.error('GetPhotos: unable to copy link', error);
-                updateStatus(COPY_ERROR_MESSAGE, true);
-            }
-        });
-
-        const openButton = document.createElement('button');
-        openButton.type = 'button';
-        openButton.className = 'gp-primary';
-        openButton.textContent = 'Открыть';
-        openButton.addEventListener('click', () => {
-            try {
-                window.open(link, '_blank', 'noopener');
-            } catch (error) {
-                console.error('GetPhotos: unable to open image', error);
-            }
-        });
-
-        actions.append(copyButton, openButton);
-        content.append(meta, actions);
-        item.append(preview, content);
-
-        hydrateMeta(link, meta, dimensionsCache);
-
-        return item;
-    };
-
-    const hydrateMeta = async (link, metaElement, dimensionsCache) => {
-        try {
-            const details = await loadImageDetails(link, dimensionsCache);
-            metaElement.textContent = formatMeta(details);
-        } catch (error) {
-            console.error('GetPhotos: unable to load image details', error);
-            metaElement.textContent = 'Не удалось получить информацию об изображении';
-        }
-    };
-
-    const loadImageDetails = async (link, dimensionsCache) => {
-        const [dimensions, sizeKb] = await Promise.all([
-            getCachedDimensions(link, dimensionsCache),
-            getImageSize(link)
-        ]);
-
-        return {
-            ...dimensions,
-            sizeKb,
-            extension: extractExtension(link)
-        };
-    };
-
-    const extractExtension = (link) => {
-        try {
-            const { pathname } = new URL(link);
-            const parts = pathname.split('.');
-            if (parts.length < 2) {
-                return null;
-            }
-
-            const lastPart = parts.pop();
-            if (!lastPart || lastPart.includes('/')) {
-                return null;
-            }
-
-            const extension = lastPart.split(/[?#]/)[0];
-            return extension ? extension.toLowerCase() : null;
-        } catch (error) {
-            return null;
-        }
-    };
-
-    const formatMeta = ({ width, height, extension, sizeKb }) => {
-        const dimensions = width && height ? `${width}x${height}px` : 'Размер неизвестен';
-        const format = extension ? `.${extension}` : 'Формат неизвестен';
-        const size = Number.isFinite(sizeKb) ? `${sizeKb} KB` : 'Размер файла неизвестен';
-
-        return `${dimensions} · ${format} · ${size}`;
-    };
-
-    const getCachedDimensions = async (link, dimensionsCache) => {
-        if (dimensionsCache?.has(link)) {
-            return dimensionsCache.get(link);
-        }
-
-        const dimensions = await getImageDimensions(link);
-        dimensionsCache?.set(link, dimensions);
-        return dimensions;
-    };
-
-    const getImageDimensions = (link) => {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                resolve({ width: img.naturalWidth, height: img.naturalHeight });
-            };
-            img.onerror = () => resolve({ width: null, height: null });
-            img.src = link;
-        });
-    };
-
-    const getImageSize = async (link) => {
-        try {
-            const headResponse = await fetch(link, { method: 'HEAD' });
-            const contentLength = headResponse.headers.get('content-length');
-            const parsedLength = Number(contentLength);
-
-            if (Number.isFinite(parsedLength) && parsedLength > 0) {
-                const sizeKb = Math.max(1, Math.round(parsedLength / 1024));
-                return sizeKb;
-            }
-        } catch (error) {
-            console.warn('GetPhotos: unable to fetch HEAD for size', error);
-        }
-
-        try {
-            const response = await fetch(link);
-            if (!response.ok) {
-                return null;
-            }
-
-            const blob = await response.blob();
-            return Math.max(1, Math.round(blob.size / 1024));
-        } catch (error) {
-            console.warn('GetPhotos: unable to fetch file for size', error);
-            return null;
-        }
-    };
-
-    const formatImageCount = (count) => {
-        const mod10 = count % 10;
-        const mod100 = count % 100;
-
-        if (mod10 === 1 && mod100 !== 11) {
-            return `Найдено ${count} изображение`;
-        }
-
-        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-            return `Найдено ${count} изображения`;
-        }
-
-        return `Найдено ${count} изображений`;
-    };
-
-    const renderLinks = (links, elements, minWidth, dimensionsCache) => {
-        const { emptyState, list, counter } = elements;
-
-        list.innerHTML = '';
-
-        if (!links.length) {
-            emptyState.textContent = minWidth
-                ? `Нет изображений шире ${minWidth}px.`
-                : 'На странице не найдено изображений.';
-            emptyState.classList.remove('gp-hidden');
-            list.classList.add('gp-hidden');
-            counter.textContent = '';
-            counter.classList.add('gp-hidden');
-            return;
-        }
-
-        emptyState.classList.add('gp-hidden');
-        list.classList.remove('gp-hidden');
-        counter.textContent = formatImageCount(links.length);
-        counter.classList.remove('gp-hidden');
-
-        links.forEach((link) => list.appendChild(createLinkRow(link, dimensionsCache)));
-    };
-
-    const getMinWidthValue = (input) => {
-        const value = Number.parseInt(input.value, 10);
-
-        if (!Number.isFinite(value) || value <= 0) {
-            return null;
-        }
-
-        return value;
-    };
-
-    const filterLinksByMinWidth = async (links, minWidth, dimensionsCache) => {
-        if (!minWidth) {
-            return links;
-        }
-
-        const details = await Promise.all(
-            links.map(async (link) => {
-                const dimensions = await getCachedDimensions(link, dimensionsCache);
-                return { link, dimensions };
-            })
-        );
-
-        return details
-            .filter(({ dimensions }) => Number.isFinite(dimensions.width) && dimensions.width >= minWidth)
-            .map(({ link }) => link);
-    };
-
-    const updateStatus = (message, isError = false) => {
-        const status = panel.querySelector('.gp-status');
-        status.textContent = message;
-        status.classList.toggle('gp-hidden', !message);
-        status.classList.toggle('gp-status--error', isError);
-    };
-
-    const host = document.createElement('div');
-    host.id = panelId;
-    host.style.position = 'fixed';
-    host.style.top = '0';
-    host.style.right = '0';
-    host.style.zIndex = '2147483647';
-    host.style.height = '100vh';
-    host.style.width = '380px';
-
-    const shadowRoot = host.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent = styles;
-
-    const panel = document.createElement('section');
-    panel.className = 'gp-panel';
-    panel.innerHTML = templateHtml;
-
-    shadowRoot.append(style, panel);
-    document.body.appendChild(host);
-
-    const closeButton = panel.querySelector('.gp-close');
-    const collectButton = panel.querySelector('.gp-primary');
-    const minWidthInput = panel.querySelector('.gp-input');
-    const emptyState = panel.querySelector('.gp-empty');
-    const counter = panel.querySelector('.gp-counter');
-    const list = panel.querySelector('.gp-list');
-    let lastLinks = [];
-    const dimensionsCache = new Map();
-
-    closeButton.addEventListener('click', () => host.remove());
-
-    collectButton.addEventListener('click', async () => {
-        lastLinks = collectImageLinks();
-        updateStatus('');
-        const minWidth = getMinWidthValue(minWidthInput);
-        const filteredLinks = await filterLinksByMinWidth(lastLinks, minWidth, dimensionsCache);
-        renderLinks(filteredLinks, { emptyState, list, counter }, minWidth, dimensionsCache);
-    });
 }

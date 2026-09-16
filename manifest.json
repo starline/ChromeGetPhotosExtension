@@ -1,17 +1,26 @@
 {
     "manifest_version": 3,
     "name": "GetPhotos",
-    "description": "Извлекает ссылки на изображения с текущего сайта и показывает их в боковой панели.",
-    "version": "0.1.0",
+    "description": "Side panel tools: GetPhotos (image links) and GetProducts (Taobao shop products).",
+    "version": "0.7.0",
     "action": {
         "default_title": "GetPhotos"
     },
     "background": {
         "service_worker": "src/background.js"
     },
+    "side_panel": {
+        "default_path": "templates/sidepanel.html"
+    },
     "permissions": [
         "activeTab",
         "tabs",
-        "scripting"
+        "scripting",
+        "sidePanel",
+        "storage"
+    ],
+    "host_permissions": [
+        "http://*/*",
+        "https://*/*"
     ]
 }
