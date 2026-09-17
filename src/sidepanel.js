@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * Collections persist in IndexedDB and survive browser restarts.
- * @version 2.9
+ * @version 3.1
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -65,11 +65,18 @@ const dimensionsCache = new Map();
 /** @type {{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }} */
 let appSettings = GpSettingsStore.getDefaultSettings();
 
+/** @type {HTMLElement|null} */
+let productDetailRoot = null;
+
+/** @type {((event: KeyboardEvent) => void)|null} */
+let productDetailKeyHandler = null;
+
 window.gpSidePanelReady = bootstrapSidePanel();
 
 async function bootstrapSidePanel() {
     appSettings = await GpSettingsStore.loadSettings();
     initToolSwitcher();
+    initProductDetail();
     await initPhotosTool(document.querySelector('[data-tool-panel="photos"]'));
     await initProductsTool(document.querySelector('[data-tool-panel="products"]'));
     initSettingsTool(document.querySelector('[data-tool-panel="settings"]'));
@@ -83,6 +90,7 @@ function initToolSwitcher() {
     tools.forEach((button) => {
         button.addEventListener('click', () => {
             const toolId = button.dataset.tool;
+            closeProductDetail();
 
             tools.forEach((item) => {
                 const isActive = item === button;
@@ -589,6 +597,7 @@ async function initProductsTool(root) {
         updatedAt = null;
         sortField = null;
         sortDirection = 'asc';
+        closeProductDetail();
         await GpCollectionStore.clearProductsCollection();
         syncPersistButtons();
         setSource(sourceLabel, null);
@@ -914,9 +923,22 @@ function createProductRow(product, status, onRemove, onPersist) {
     const content = document.createElement('div');
     content.className = 'gp-content';
 
-    const title = document.createElement('p');
+    const title = document.createElement('a');
     title.className = 'gp-product-title';
     title.textContent = product.title || 'Без названия';
+    title.title = 'Открыть карточку товара';
+    title.setAttribute('aria-label', `Открыть карточку: ${product.title || 'Без названия'}`);
+    if (product.url) {
+        title.href = product.url;
+    } else {
+        title.href = '#';
+        title.setAttribute('role', 'button');
+    }
+    title.addEventListener('click', (event) => {
+        event.preventDefault();
+        openProductDetail(product, onPersist);
+    });
+    enableBootstrapTooltip(title);
 
     const stats = document.createElement('div');
     stats.className = 'gp-product-stats';
@@ -931,10 +953,6 @@ function createProductRow(product, status, onRemove, onPersist) {
 
     stats.append(price, sales);
 
-    const photosGallery = document.createElement('div');
-    photosGallery.className = 'gp-product-photos gp-hidden';
-    photosGallery.setAttribute('data-role', 'product-photos');
-
     const actions = document.createElement('div');
     actions.className = 'gp-actions-row';
     actions.append(
@@ -944,23 +962,181 @@ function createProductRow(product, status, onRemove, onPersist) {
         createRemoveButton(onRemove)
     );
 
-    const photosActions = document.createElement('div');
-    photosActions.className = 'gp-actions-row gp-product-photos-actions';
-    photosActions.append(createCollectProductPhotosButton(product, photosGallery, status, onPersist));
-
-    content.append(title, stats, actions, photosActions);
+    content.append(title, stats, actions);
     main.append(preview, content);
-    item.append(main, photosGallery);
-
-    if (Array.isArray(product.photos) && product.photos.length) {
-        renderProductPhotoTiles(photosGallery, product.photos);
-    }
+    item.append(main);
 
     return item;
 }
 
-/** Visible only for the product open in the active tab (see .is-open-tab). */
-function createCollectProductPhotosButton(product, photosGallery, status, onPersist) {
+function initProductDetail() {
+    productDetailRoot = document.querySelector('[data-role="product-detail"]');
+    if (!productDetailRoot) {
+        return;
+    }
+
+    productDetailRoot.querySelectorAll('[data-role="product-detail-close"]').forEach((button) => {
+        button.addEventListener('click', () => closeProductDetail());
+        enableBootstrapTooltip(button);
+    });
+}
+
+function openProductDetail(product, onPersist) {
+    if (!productDetailRoot || !product) {
+        return;
+    }
+
+    const body = productDetailRoot.querySelector('[data-role="product-detail-body"]');
+    const closeButton = productDetailRoot.querySelector('[data-role="product-detail-close"]');
+    if (!body) {
+        return;
+    }
+
+    disposeBootstrapTooltips(body);
+    body.replaceChildren(buildProductDetailContent(product, onPersist));
+    productDetailRoot.classList.remove('gp-hidden');
+    productDetailRoot.hidden = false;
+
+    if (productDetailKeyHandler) {
+        document.removeEventListener('keydown', productDetailKeyHandler);
+    }
+    productDetailKeyHandler = (event) => {
+        if (event.key === 'Escape') {
+            closeProductDetail();
+        }
+    };
+    document.addEventListener('keydown', productDetailKeyHandler);
+
+    closeButton?.focus();
+}
+
+function closeProductDetail() {
+    if (!productDetailRoot || productDetailRoot.hidden) {
+        return;
+    }
+
+    const body = productDetailRoot.querySelector('[data-role="product-detail-body"]');
+    if (body) {
+        disposeBootstrapTooltips(body);
+        body.replaceChildren();
+    }
+
+    productDetailRoot.classList.add('gp-hidden');
+    productDetailRoot.hidden = true;
+
+    if (productDetailKeyHandler) {
+        document.removeEventListener('keydown', productDetailKeyHandler);
+        productDetailKeyHandler = null;
+    }
+}
+
+function buildProductDetailContent(product, onPersist) {
+    const fragment = document.createDocumentFragment();
+
+    const image = document.createElement('img');
+    image.className = 'gp-product-detail__image';
+    image.src = product.image || '';
+    image.alt = product.title || 'Превью товара';
+    image.loading = 'lazy';
+
+    const title = document.createElement('h2');
+    title.className = 'gp-product-detail__title';
+    title.id = 'gp-product-detail-title';
+    title.textContent = product.title || 'Без названия';
+
+    const stats = document.createElement('div');
+    stats.className = 'gp-product-detail__stats';
+
+    const price = document.createElement('span');
+    price.className = 'gp-product-price';
+    price.textContent = product.price || 'Цена неизвестна';
+
+    const sales = document.createElement('span');
+    sales.className = 'gp-product-sales';
+    sales.textContent = product.sales ? `Продажи: ${product.sales}` : 'Продажи неизвестны';
+
+    stats.append(price, sales);
+
+    const urlBlock = document.createElement('p');
+    urlBlock.className = 'gp-product-detail__url';
+    if (product.url) {
+        const link = document.createElement('a');
+        link.href = product.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = product.url;
+        urlBlock.append(link);
+    } else {
+        urlBlock.textContent = 'Ссылка на товар отсутствует';
+    }
+
+    const status = document.querySelector('[data-tool-panel="products"] [data-role="status"]');
+    const actions = document.createElement('div');
+    actions.className = 'gp-actions-row';
+    actions.append(
+        createCopyLinkButton(product.url || '', status, !product.url),
+        createOpenButton(product.url || '', !product.url),
+        createOpenInSameTabButton(product.url || '', !product.url)
+    );
+
+    const photosHeader = document.createElement('div');
+    photosHeader.className = 'gp-product-detail__photos-header';
+
+    const photosLabel = document.createElement('p');
+    photosLabel.className = 'gp-product-detail__photos-label';
+    photosLabel.textContent = 'Собранные фотографии';
+
+    photosHeader.append(
+        photosLabel,
+        createCollectProductPhotosButton(product, status, onPersist, () => {
+            const body = productDetailRoot?.querySelector('[data-role="product-detail-body"]');
+            if (!body) {
+                return;
+            }
+            disposeBootstrapTooltips(body);
+            body.replaceChildren(buildProductDetailContent(product, onPersist));
+        })
+    );
+
+    fragment.append(image, title, stats, urlBlock, actions, photosHeader);
+
+    const photos = Array.isArray(product.photos) ? product.photos : [];
+    if (photos.length) {
+        const photosGrid = document.createElement('div');
+        photosGrid.className = 'gp-product-detail__photos';
+        photos.forEach((link) => {
+            const thumb = document.createElement('button');
+            thumb.type = 'button';
+            thumb.className = 'gp-product-photo-thumb';
+            thumb.title = 'Открыть изображение';
+            thumb.setAttribute('aria-label', 'Открыть изображение');
+
+            const img = document.createElement('img');
+            img.src = link;
+            img.alt = '';
+            img.loading = 'lazy';
+
+            thumb.appendChild(img);
+            thumb.addEventListener('click', () => {
+                chrome.tabs.create({ url: link }).catch((error) => {
+                    console.error('GetPhotos: unable to open product photo', error);
+                });
+            });
+            photosGrid.appendChild(thumb);
+        });
+        fragment.append(photosGrid);
+    } else {
+        const emptyPhotos = document.createElement('p');
+        emptyPhotos.className = 'gp-product-detail__empty-photos';
+        emptyPhotos.textContent = 'Фотографии ещё не собраны. Откройте товар во вкладке и нажмите «Фотографии».';
+        fragment.append(emptyPhotos);
+    }
+
+    return fragment;
+}
+
+/** Collect images from the active tab into this product's photos (detail card). */
+function createCollectProductPhotosButton(product, status, onPersist, onCollected) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'gp-secondary gp-product-photos-btn';
@@ -978,8 +1154,8 @@ function createCollectProductPhotosButton(product, photosGallery, status, onPers
 
             if (!response?.ok) {
                 product.photos = [];
-                renderProductPhotoTiles(photosGallery, []);
                 await onPersist?.();
+                onCollected?.();
                 updateStatus(status, response?.error || 'Не удалось получить фотографии.', true);
                 return;
             }
@@ -987,8 +1163,8 @@ function createCollectProductPhotosButton(product, photosGallery, status, onPers
             const links = Array.isArray(response.links) ? response.links : [];
             const filtered = await filterLinksByMinWidth(links, minWidth);
             product.photos = filtered;
-            renderProductPhotoTiles(photosGallery, filtered);
             await onPersist?.();
+            onCollected?.();
 
             if (!filtered.length) {
                 updateStatus(status, `Нет фотографий шире ${minWidth}px (настройка).`, true);
@@ -1008,43 +1184,6 @@ function createCollectProductPhotosButton(product, photosGallery, status, onPers
     });
     enableBootstrapTooltip(button);
     return button;
-}
-
-/** Square thumbnail grid inside the product cell. */
-function renderProductPhotoTiles(container, links) {
-    if (!container) {
-        return;
-    }
-
-    container.innerHTML = '';
-
-    if (!Array.isArray(links) || !links.length) {
-        container.classList.add('gp-hidden');
-        return;
-    }
-
-    container.classList.remove('gp-hidden');
-
-    links.forEach((link) => {
-        const thumb = document.createElement('button');
-        thumb.type = 'button';
-        thumb.className = 'gp-product-photo-thumb';
-        thumb.title = 'Открыть изображение';
-        thumb.setAttribute('aria-label', 'Открыть изображение');
-
-        const img = document.createElement('img');
-        img.src = link;
-        img.alt = '';
-        img.loading = 'lazy';
-
-        thumb.appendChild(img);
-        thumb.addEventListener('click', () => {
-            chrome.tabs.create({ url: link }).catch((error) => {
-                console.error('GetPhotos: unable to open product photo', error);
-            });
-        });
-        container.appendChild(thumb);
-    });
 }
 
 function createCopyLinkButton(value, status, disabled = false) {

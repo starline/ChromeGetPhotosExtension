@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- @version 1.7 -->
+    <!-- @version 1.8 -->
     <title>GetPhotos</title>
     <link rel="stylesheet" href="../assets/panel.css" />
 </head>
@@ -222,6 +222,35 @@
             </div>
             <p class="gp-hint">Ширина подставляется в фильтр GetPhotos. Токен и модель сохраняются локально для будущих запросов к OpenAI API.</p>
             <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
+        </div>
+
+        <div
+            class="gp-product-detail gp-hidden"
+            data-role="product-detail"
+            hidden
+        >
+            <div
+                class="gp-product-detail__card"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="gp-product-detail-title"
+            >
+                <header class="gp-product-detail__header">
+                    <button
+                        class="gp-secondary gp-icon-btn gp-product-detail__back"
+                        type="button"
+                        data-role="product-detail-close"
+                        title="Назад к списку"
+                        aria-label="Назад к списку"
+                    >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                    </button>
+                    <span class="gp-product-detail__heading">Карточка товара</span>
+                </header>
+                <div class="gp-product-detail__body" data-role="product-detail-body"></div>
+            </div>
         </div>
     </section>
     <script src="../assets/vendor/bootstrap.bundle.min.js"></script>

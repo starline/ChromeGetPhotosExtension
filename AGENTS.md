@@ -67,7 +67,7 @@ GetPhotos — MV3-расширение с **одним глобальным Side
 ### Инструменты UI (один panel, три режима)
 
 - **photos** — ссылки на изображения, min width, sort по площади, copy URL/image, open, remove.
-- **products** — карточки Taobao/Tmall; collect all / cursor multi-pick (пока кнопка включена); sort price/sales; open same/new tab; highlight по URL активной вкладки; кнопка «Фотографии» → тот же `COLLECT_IMAGES` в ячейку товара.
+- **products** — карточки Taobao/Tmall; collect all / cursor multi-pick (пока кнопка включена); sort price/sales; клик по названию → in-panel карточка товара; open same/new tab; highlight по URL активной вкладки; кнопка «Фотографии» в карточке → тот же `COLLECT_IMAGES` в сетку фото товара.
 - **settings** — defaults + OpenAI token/model.
 
 ### Жёсткие инварианты для агента
