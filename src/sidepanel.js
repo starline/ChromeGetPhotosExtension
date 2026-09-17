@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * Collections persist in IndexedDB and survive browser restarts.
- * @version 3.1
+ * @version 3.3
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -1057,19 +1057,6 @@ function buildProductDetailContent(product, onPersist) {
 
     stats.append(price, sales);
 
-    const urlBlock = document.createElement('p');
-    urlBlock.className = 'gp-product-detail__url';
-    if (product.url) {
-        const link = document.createElement('a');
-        link.href = product.url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = product.url;
-        urlBlock.append(link);
-    } else {
-        urlBlock.textContent = 'Ссылка на товар отсутствует';
-    }
-
     const status = document.querySelector('[data-tool-panel="products"] [data-role="status"]');
     const actions = document.createElement('div');
     actions.className = 'gp-actions-row';
@@ -1078,6 +1065,13 @@ function buildProductDetailContent(product, onPersist) {
         createOpenButton(product.url || '', !product.url),
         createOpenInSameTabButton(product.url || '', !product.url)
     );
+
+    // Same list UX as GetPhotos: rows + size sort (not a thumbnail grid)
+    const photosSection = document.createElement('div');
+    photosSection.className = 'gp-product-detail__photos-section';
+
+    let sortField = null;
+    let sortDirection = 'desc';
 
     const photosHeader = document.createElement('div');
     photosHeader.className = 'gp-product-detail__photos-header';
@@ -1098,39 +1092,109 @@ function buildProductDetailContent(product, onPersist) {
         })
     );
 
-    fragment.append(image, title, stats, urlBlock, actions, photosHeader);
+    const counter = document.createElement('p');
+    counter.className = 'gp-counter gp-hidden';
+    counter.setAttribute('aria-live', 'polite');
 
-    const photos = Array.isArray(product.photos) ? product.photos : [];
-    if (photos.length) {
-        const photosGrid = document.createElement('div');
-        photosGrid.className = 'gp-product-detail__photos';
-        photos.forEach((link) => {
-            const thumb = document.createElement('button');
-            thumb.type = 'button';
-            thumb.className = 'gp-product-photo-thumb';
-            thumb.title = 'Открыть изображение';
-            thumb.setAttribute('aria-label', 'Открыть изображение');
+    const sortBar = document.createElement('div');
+    sortBar.className = 'gp-sort gp-hidden';
+    sortBar.setAttribute('role', 'group');
+    sortBar.setAttribute('aria-label', 'Сортировка фотографий');
 
-            const img = document.createElement('img');
-            img.src = link;
-            img.alt = '';
-            img.loading = 'lazy';
+    const sortLabel = document.createElement('span');
+    sortLabel.className = 'gp-sort__label';
+    sortLabel.textContent = 'Сортировка';
 
-            thumb.appendChild(img);
-            thumb.addEventListener('click', () => {
-                chrome.tabs.create({ url: link }).catch((error) => {
-                    console.error('GetPhotos: unable to open product photo', error);
-                });
-            });
-            photosGrid.appendChild(thumb);
-        });
-        fragment.append(photosGrid);
-    } else {
-        const emptyPhotos = document.createElement('p');
-        emptyPhotos.className = 'gp-product-detail__empty-photos';
-        emptyPhotos.textContent = 'Фотографии ещё не собраны. Откройте товар во вкладке и нажмите «Фотографии».';
-        fragment.append(emptyPhotos);
+    const sortButton = document.createElement('button');
+    sortButton.type = 'button';
+    sortButton.className = 'gp-secondary gp-sort__btn';
+    sortButton.dataset.sort = 'size';
+    sortButton.title = 'Сортировать по размеру изображения';
+    sortButton.textContent = 'По размеру';
+
+    sortBar.append(sortLabel, sortButton);
+
+    const results = document.createElement('div');
+    results.className = 'gp-results gp-product-detail__photos-results';
+    results.setAttribute('aria-live', 'polite');
+
+    const emptyState = document.createElement('p');
+    emptyState.className = 'gp-empty';
+    emptyState.textContent = 'Фотографии ещё не собраны. Откройте товар во вкладке и нажмите «Фотографии».';
+
+    const list = document.createElement('ul');
+    list.className = 'gp-list gp-hidden';
+
+    results.append(emptyState, list);
+    photosSection.append(photosHeader, counter, sortBar, results);
+
+    sortButton.addEventListener('click', async () => {
+        if (!Array.isArray(product.photos) || !product.photos.length) {
+            return;
+        }
+
+        if (sortField === 'size') {
+            sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortField = 'size';
+            sortDirection = 'desc';
+        }
+
+        await refreshPhotosList();
+    });
+
+    function syncSortButton() {
+        const isActive = sortField === 'size';
+        const arrow = sortDirection === 'asc' ? '↑' : '↓';
+
+        sortButton.classList.toggle('is-active', isActive);
+        sortButton.setAttribute('aria-pressed', String(isActive));
+        sortButton.textContent = isActive ? `По размеру ${arrow}` : 'По размеру';
     }
+
+    function renderPhotosList(links) {
+        disposeBootstrapTooltips(list);
+        list.innerHTML = '';
+
+        if (!links.length) {
+            emptyState.textContent = 'Фотографии ещё не собраны. Откройте товар во вкладке и нажмите «Фотографии».';
+            emptyState.classList.remove('gp-hidden');
+            list.classList.add('gp-hidden');
+            counter.textContent = '';
+            counter.classList.add('gp-hidden');
+            sortBar.classList.add('gp-hidden');
+            syncSortButton();
+            return;
+        }
+
+        emptyState.classList.add('gp-hidden');
+        list.classList.remove('gp-hidden');
+        counter.textContent = formatCount(links.length, ['изображение', 'изображения', 'изображений']);
+        counter.classList.remove('gp-hidden');
+        sortBar.classList.remove('gp-hidden');
+        syncSortButton();
+
+        links.forEach((link) => {
+            list.appendChild(createImageRow(link, status, () => removePhoto(link)));
+        });
+    }
+
+    async function refreshPhotosList() {
+        const photos = Array.isArray(product.photos) ? product.photos.slice() : [];
+        const sortedLinks = await sortLinksBySize(photos, sortField, sortDirection);
+        renderPhotosList(sortedLinks);
+    }
+
+    async function removePhoto(link) {
+        product.photos = (Array.isArray(product.photos) ? product.photos : []).filter((item) => item !== link);
+        dimensionsCache.delete(link);
+        await onPersist?.();
+        updateStatus(status, REMOVE_IMAGE_SUCCESS_MESSAGE);
+        await refreshPhotosList();
+    }
+
+    fragment.append(image, title, stats, actions, photosSection);
+    void refreshPhotosList();
 
     return fragment;
 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- @version 1.9 -->
+    <!-- @version 2.1 -->
     <title>GetPhotos — Dev Preview</title>
     <link rel="stylesheet" href="../assets/panel.css" />
     <style>
@@ -561,9 +561,27 @@
                                 class="gp-tool is-active"
                                 type="button"
                                 role="tab"
+                                id="tool-products"
+                                data-tool="products"
+                                aria-selected="true"
+                                aria-controls="panel-products"
+                                title="GetProducts"
+                            >
+                                <span class="gp-tool__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+                                        <path d="M4 7h16l-1.2 12.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8L4 7z"></path>
+                                        <path d="M9 7V5a3 3 0 0 1 6 0v2"></path>
+                                    </svg>
+                                </span>
+                                <span class="gp-tool__label">GetProducts</span>
+                            </button>
+                            <button
+                                class="gp-tool"
+                                type="button"
+                                role="tab"
                                 id="tool-photos"
                                 data-tool="photos"
-                                aria-selected="true"
+                                aria-selected="false"
                                 aria-controls="panel-photos"
                                 title="GetPhotos"
                             >
@@ -575,24 +593,6 @@
                                     </svg>
                                 </span>
                                 <span class="gp-tool__label">GetPhotos</span>
-                            </button>
-                            <button
-                                class="gp-tool"
-                                type="button"
-                                role="tab"
-                                id="tool-products"
-                                data-tool="products"
-                                aria-selected="false"
-                                aria-controls="panel-products"
-                                title="GetProducts"
-                            >
-                                <span class="gp-tool__icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
-                                        <path d="M4 7h16l-1.2 12.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8L4 7z"></path>
-                                        <path d="M9 7V5a3 3 0 0 1 6 0v2"></path>
-                                    </svg>
-                                </span>
-                                <span class="gp-tool__label">GetProducts</span>
                             </button>
                             <button
                                 class="gp-tool gp-tool--settings"
@@ -616,61 +616,10 @@
 
                         <div
                             class="gp-surface"
-                            id="panel-photos"
-                            role="tabpanel"
-                            data-tool-panel="photos"
-                            aria-labelledby="tool-photos"
-                        >
-                            <header class="gp-header">
-                                <div class="gp-title">
-                                    <span class="gp-name">GetPhotos</span>
-                                    <span class="gp-subtitle">Фильтры изображений</span>
-                                </div>
-                            </header>
-                            <p class="gp-source gp-hidden" data-role="source" aria-live="polite"></p>
-                            <div class="gp-actions">
-                                <label class="gp-field">
-                                    <span class="gp-field__label">Минимальная ширина</span>
-                                    <input
-                                        type="number"
-                                        class="gp-input"
-                                        data-role="min-width"
-                                        min="0"
-                                        placeholder="например, 500"
-                                        aria-label="Минимальная ширина изображения"
-                                    />
-                                </label>
-                                <button class="gp-primary" type="button" data-role="collect">Получить изображения</button>
-                            </div>
-                            <div class="gp-persist" data-role="persist" role="group" aria-label="Сохранённый список изображений">
-                                <button class="gp-secondary" type="button" data-role="export-csv" title="Экспортировать собранные ссылки в CSV">
-                                    Экспорт CSV
-                                </button>
-                                <button class="gp-secondary gp-persist__clear" type="button" data-role="clear" title="Очистить сохранённый список изображений">
-                                    Очистить
-                                </button>
-                            </div>
-                            <p class="gp-counter gp-hidden" data-role="counter" aria-live="polite"></p>
-                            <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
-                            <div class="gp-sort gp-hidden" data-role="sort" role="group" aria-label="Сортировка изображений">
-                                <span class="gp-sort__label">Сортировка</span>
-                                <button class="gp-secondary gp-sort__btn" type="button" data-sort="size" title="Сортировать по размеру изображения">
-                                    По размеру
-                                </button>
-                            </div>
-                            <div class="gp-results" aria-live="polite">
-                                <p class="gp-empty" data-role="empty">Список изображений появится здесь.</p>
-                                <ul class="gp-list gp-hidden" data-role="list"></ul>
-                            </div>
-                        </div>
-
-                        <div
-                            class="gp-surface gp-hidden"
                             id="panel-products"
                             role="tabpanel"
                             data-tool-panel="products"
                             aria-labelledby="tool-products"
-                            hidden
                         >
                             <header class="gp-header">
                                 <div class="gp-title">
@@ -715,6 +664,57 @@
                             </div>
                             <div class="gp-results" aria-live="polite">
                                 <p class="gp-empty" data-role="empty">Список товаров появится здесь.</p>
+                                <ul class="gp-list gp-hidden" data-role="list"></ul>
+                            </div>
+                        </div>
+
+                        <div
+                            class="gp-surface gp-hidden"
+                            id="panel-photos"
+                            role="tabpanel"
+                            data-tool-panel="photos"
+                            aria-labelledby="tool-photos"
+                            hidden
+                        >
+                            <header class="gp-header">
+                                <div class="gp-title">
+                                    <span class="gp-name">GetPhotos</span>
+                                    <span class="gp-subtitle">Фильтры изображений</span>
+                                </div>
+                            </header>
+                            <p class="gp-source gp-hidden" data-role="source" aria-live="polite"></p>
+                            <div class="gp-actions">
+                                <label class="gp-field">
+                                    <span class="gp-field__label">Минимальная ширина</span>
+                                    <input
+                                        type="number"
+                                        class="gp-input"
+                                        data-role="min-width"
+                                        min="0"
+                                        placeholder="например, 500"
+                                        aria-label="Минимальная ширина изображения"
+                                    />
+                                </label>
+                                <button class="gp-primary" type="button" data-role="collect">Получить изображения</button>
+                            </div>
+                            <div class="gp-persist" data-role="persist" role="group" aria-label="Сохранённый список изображений">
+                                <button class="gp-secondary" type="button" data-role="export-csv" title="Экспортировать собранные ссылки в CSV">
+                                    Экспорт CSV
+                                </button>
+                                <button class="gp-secondary gp-persist__clear" type="button" data-role="clear" title="Очистить сохранённый список изображений">
+                                    Очистить
+                                </button>
+                            </div>
+                            <p class="gp-counter gp-hidden" data-role="counter" aria-live="polite"></p>
+                            <p class="gp-status gp-hidden" data-role="status" aria-live="polite"></p>
+                            <div class="gp-sort gp-hidden" data-role="sort" role="group" aria-label="Сортировка изображений">
+                                <span class="gp-sort__label">Сортировка</span>
+                                <button class="gp-secondary gp-sort__btn" type="button" data-sort="size" title="Сортировать по размеру изображения">
+                                    По размеру
+                                </button>
+                            </div>
+                            <div class="gp-results" aria-live="polite">
+                                <p class="gp-empty" data-role="empty">Список изображений появится здесь.</p>
                                 <ul class="gp-list gp-hidden" data-role="list"></ul>
                             </div>
                         </div>
@@ -837,7 +837,13 @@
                 image: 'https://picsum.photos/id/21/400/400',
                 price: '¥11.99',
                 sales: '900+',
-                url: 'https://item.taobao.com/item.htm?id=10001'
+                url: 'https://item.taobao.com/item.htm?id=10001',
+                photos: [
+                    'https://picsum.photos/id/1015/1200/800',
+                    'https://picsum.photos/id/1025/900/900',
+                    'https://picsum.photos/id/1035/640/480',
+                    'https://picsum.photos/id/1043/1600/900'
+                ]
             },
             {
                 title: '亚德客型手动阀 4H210-08 4H310-10 手板阀',

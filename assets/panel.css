@@ -1,4 +1,4 @@
-/* @version 2.0 */
+/* @version 2.2 */
 :root {
     color-scheme: light dark;
     font-family: "Segoe UI", sans-serif;
@@ -415,34 +415,6 @@ body {
     flex-shrink: 0;
 }
 
-.gp-product-photo-thumb {
-    display: block;
-    width: 100%;
-    aspect-ratio: 1;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--surface-muted);
-    cursor: pointer;
-}
-
-.gp-product-photo-thumb:hover {
-    border-color: var(--primary);
-}
-
-.gp-product-photo-thumb:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.16);
-}
-
-.gp-product-photo-thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
 .gp-preview {
     width: 100px;
     height: 100px;
@@ -566,20 +538,12 @@ body {
     font-size: 14px;
 }
 
-.gp-product-detail__url {
-    margin: 0;
-    font-size: 12px;
-    color: var(--muted);
-    word-break: break-all;
-}
-
-.gp-product-detail__url a {
-    color: var(--primary);
-    text-decoration: none;
-}
-
-.gp-product-detail__url a:hover {
-    text-decoration: underline;
+.gp-product-detail__photos-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    min-height: 0;
 }
 
 .gp-product-detail__photos-header {
@@ -587,7 +551,6 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-top: 4px;
 }
 
 .gp-product-detail__photos-label {
@@ -596,17 +559,10 @@ body {
     font-weight: 600;
 }
 
-.gp-product-detail__photos {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-    gap: 6px;
-    width: 100%;
-}
-
-.gp-product-detail__empty-photos {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
+/* Same bordered results block as GetPhotos list */
+.gp-product-detail__photos-results {
+    flex: 0 1 auto;
+    max-height: none;
 }
 
 .gp-meta {
