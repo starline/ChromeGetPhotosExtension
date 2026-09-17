@@ -34,17 +34,17 @@ GetPhotos — MV3-расширение с **одним глобальным Side
                               ← PRODUCT_PICKED / CANCELLED
                                                               ↓
                                                     [src/services/*]
-                                                    chrome.storage.local
+                                                    IndexedDB (GpIndexedDb)
 ```
 
 ### Слои и ответственность (SRP)
 
 | Слой | Файлы | Ответственность |
 |------|--------|-----------------|
-| Manifest | `manifest.json` | MV3 entrypoints, permissions (`activeTab`, `tabs`, `scripting`, `sidePanel`, `storage`), host permissions |
+| Manifest | `manifest.json` | MV3 entrypoints, permissions (`activeTab`, `tabs`, `scripting`, `sidePanel`, `storage` for legacy migrate), host permissions |
 | Background | `src/background.js` | Side Panel behavior, доступность на служебных страницах, message bus, inject collectors в active tab |
 | UI | `src/sidepanel.js` + `templates/sidepanel.html` | Tool switcher, списки, фильтры/сорт, copy/open/remove, highlight товара на активной вкладке |
-| Services | `src/services/settingsStore.js`, `openaiConfig.js` | Persistence DTO (`GpSettingsStore`), OpenAI config helpers (`GpOpenAiConfig`) — IIFE → `globalThis` |
+| Services | `src/services/indexedDb.js`, `settingsStore.js`, `openaiConfig.js`, `collectionStore.js` | IndexedDB KV (`GpIndexedDb`), settings/collections DTO, OpenAI helpers — IIFE → `globalThis` |
 | Styles / assets | `assets/panel.css`, icons, `assets/vendor/bootstrap.bundle.min.js` | Стили панели; Bootstrap только для tooltips (локально из‑за MV3 CSP) |
 | Dev preview | `templates/dev-preview.html` | Моки Chrome API + демо-данные; UI без загрузки расширения |
 
@@ -58,9 +58,10 @@ GetPhotos — MV3-расширение с **одним глобальным Side
 
 ### Поток данных: настройки
 
-- Ключ storage: `gpSettings` (`chrome.storage.local`).
-- DTO: `{ defaultMinWidth, openaiApiKey, openaiModel }`.
-- Порядок скриптов в HTML: `openaiConfig.js` → `settingsStore.js` → `sidepanel.js`.
+- Хранение: **IndexedDB** (`GetPhotos` / store `kv`), ключи `gpSettings`, `gpPhotosCollection`, `gpProductsCollection`.
+- DTO настроек: `{ defaultMinWidth, openaiApiKey, openaiModel }`.
+- Порядок скриптов в HTML: `openaiConfig.js` → `indexedDb.js` → `settingsStore.js` → `collectionStore.js` → `sidepanel.js`.
+- При первом открытии панели: одноразовая миграция из `chrome.storage.local` (если были старые данные).
 - `defaultMinWidth` синкается в фильтр GetPhotos; OpenAI поля пока только хранятся (API ещё не вызывается).
 
 ### Инструменты UI (один panel, три режима)

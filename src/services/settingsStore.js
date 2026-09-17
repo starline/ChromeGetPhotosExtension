@@ -1,7 +1,7 @@
 /**
- * chrome.storage.local settings DTO for the side panel.
+ * IndexedDB settings DTO for the side panel.
  * Keeps persistence out of UI init code (SRP).
- * @version 0.1
+ * @version 0.2
  */
 (function (global) {
     'use strict';
@@ -10,6 +10,7 @@
     const DEFAULT_MIN_WIDTH = 500;
 
     /**
+     * Normalize a raw min-width input to a non-negative integer or null.
      * @param {unknown} rawValue
      * @returns {number|null}
      */
@@ -24,6 +25,7 @@
     }
 
     /**
+     * Build default settings DTO.
      * @returns {{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }}
      */
     function getDefaultSettings() {
@@ -34,18 +36,15 @@
     }
 
     /**
+     * Load settings from IndexedDB with safe defaults.
      * @returns {Promise<{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }>}
      */
     async function loadSettings() {
         const fallback = getDefaultSettings();
 
         try {
-            if (!global.chrome?.storage?.local?.get) {
-                return fallback;
-            }
-
-            const data = await global.chrome.storage.local.get(SETTINGS_STORAGE_KEY);
-            const stored = data?.[SETTINGS_STORAGE_KEY] || {};
+            await global.GpIndexedDb.ensureLegacyMigrated();
+            const stored = (await global.GpIndexedDb.get(SETTINGS_STORAGE_KEY)) || {};
             const defaultMinWidth = normalizeMinWidthValue(stored.defaultMinWidth) ?? DEFAULT_MIN_WIDTH;
 
             return {
@@ -59,16 +58,14 @@
     }
 
     /**
+     * Persist settings DTO to IndexedDB.
      * @param {{ defaultMinWidth: number, openaiApiKey: string, openaiModel: string }} settings
      * @returns {Promise<void>}
      */
     async function saveSettings(settings) {
         try {
-            if (!global.chrome?.storage?.local?.set) {
-                return;
-            }
-
-            await global.chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settings });
+            await global.GpIndexedDb.ensureLegacyMigrated();
+            await global.GpIndexedDb.set(SETTINGS_STORAGE_KEY, settings);
         } catch (error) {
             console.error('GetPhotos: unable to save settings', error);
         }

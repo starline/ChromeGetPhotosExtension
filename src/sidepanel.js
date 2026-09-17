@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
- * Collections persist in chrome.storage.local and survive browser restarts.
- * @version 2.7
+ * Collections persist in IndexedDB and survive browser restarts.
+ * @version 2.9
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -917,10 +917,6 @@ function createProductRow(product, status, onRemove, onPersist) {
     const title = document.createElement('p');
     title.className = 'gp-product-title';
     title.textContent = product.title || 'Без названия';
-    if (product.title) {
-        title.title = product.title;
-        enableBootstrapTooltip(title);
-    }
 
     const stats = document.createElement('div');
     stats.className = 'gp-product-stats';

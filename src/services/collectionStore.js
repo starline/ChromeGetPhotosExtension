@@ -1,7 +1,7 @@
 /**
- * Persist collected Photos / Products lists in chrome.storage.local.
+ * Persist collected Photos / Products lists in IndexedDB.
  * Survives browser restart; keeps UI free of storage details (SRP).
- * @version 0.1
+ * @version 0.2
  */
 (function (global) {
     'use strict';
@@ -10,6 +10,7 @@
     const PRODUCTS_STORAGE_KEY = 'gpProductsCollection';
 
     /**
+     * Empty photos collection DTO.
      * @returns {{ links: string[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }}
      */
     function getEmptyPhotosCollection() {
@@ -22,6 +23,7 @@
     }
 
     /**
+     * Empty products collection DTO.
      * @returns {{ products: object[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }}
      */
     function getEmptyProductsCollection() {
@@ -34,6 +36,7 @@
     }
 
     /**
+     * Normalize a raw photos collection payload.
      * @param {unknown} raw
      * @returns {{ links: string[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }}
      */
@@ -56,6 +59,7 @@
     }
 
     /**
+     * Normalize a single product card DTO.
      * @param {unknown} product
      * @returns {object|null}
      */
@@ -79,6 +83,7 @@
     }
 
     /**
+     * Normalize a raw products collection payload.
      * @param {unknown} raw
      * @returns {{ products: object[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }}
      */
@@ -101,16 +106,14 @@
     }
 
     /**
+     * Load photos collection from IndexedDB.
      * @returns {Promise<{ links: string[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }>}
      */
     async function loadPhotosCollection() {
         try {
-            if (!global.chrome?.storage?.local?.get) {
-                return getEmptyPhotosCollection();
-            }
-
-            const data = await global.chrome.storage.local.get(PHOTOS_STORAGE_KEY);
-            return normalizePhotosCollection(data?.[PHOTOS_STORAGE_KEY]);
+            await global.GpIndexedDb.ensureLegacyMigrated();
+            const data = await global.GpIndexedDb.get(PHOTOS_STORAGE_KEY);
+            return normalizePhotosCollection(data);
         } catch (error) {
             console.error('GetPhotos: unable to load photos collection', error);
             return getEmptyPhotosCollection();
@@ -118,37 +121,33 @@
     }
 
     /**
+     * Save photos collection to IndexedDB.
      * @param {{ links: string[], pageUrl?: string|null, pageTitle?: string|null, updatedAt?: string|null }} collection
      * @returns {Promise<void>}
      */
     async function savePhotosCollection(collection) {
         try {
-            if (!global.chrome?.storage?.local?.set) {
-                return;
-            }
-
+            await global.GpIndexedDb.ensureLegacyMigrated();
             const payload = normalizePhotosCollection({
                 ...collection,
                 updatedAt: collection?.updatedAt || new Date().toISOString()
             });
 
-            await global.chrome.storage.local.set({ [PHOTOS_STORAGE_KEY]: payload });
+            await global.GpIndexedDb.set(PHOTOS_STORAGE_KEY, payload);
         } catch (error) {
             console.error('GetPhotos: unable to save photos collection', error);
         }
     }
 
     /**
+     * Load products collection from IndexedDB.
      * @returns {Promise<{ products: object[], pageUrl: string|null, pageTitle: string|null, updatedAt: string|null }>}
      */
     async function loadProductsCollection() {
         try {
-            if (!global.chrome?.storage?.local?.get) {
-                return getEmptyProductsCollection();
-            }
-
-            const data = await global.chrome.storage.local.get(PRODUCTS_STORAGE_KEY);
-            return normalizeProductsCollection(data?.[PRODUCTS_STORAGE_KEY]);
+            await global.GpIndexedDb.ensureLegacyMigrated();
+            const data = await global.GpIndexedDb.get(PRODUCTS_STORAGE_KEY);
+            return normalizeProductsCollection(data);
         } catch (error) {
             console.error('GetPhotos: unable to load products collection', error);
             return getEmptyProductsCollection();
@@ -156,27 +155,26 @@
     }
 
     /**
+     * Save products collection to IndexedDB.
      * @param {{ products: object[], pageUrl?: string|null, pageTitle?: string|null, updatedAt?: string|null }} collection
      * @returns {Promise<void>}
      */
     async function saveProductsCollection(collection) {
         try {
-            if (!global.chrome?.storage?.local?.set) {
-                return;
-            }
-
+            await global.GpIndexedDb.ensureLegacyMigrated();
             const payload = normalizeProductsCollection({
                 ...collection,
                 updatedAt: collection?.updatedAt || new Date().toISOString()
             });
 
-            await global.chrome.storage.local.set({ [PRODUCTS_STORAGE_KEY]: payload });
+            await global.GpIndexedDb.set(PRODUCTS_STORAGE_KEY, payload);
         } catch (error) {
             console.error('GetPhotos: unable to save products collection', error);
         }
     }
 
     /**
+     * Clear stored photos collection.
      * @returns {Promise<void>}
      */
     async function clearPhotosCollection() {
@@ -184,6 +182,7 @@
     }
 
     /**
+     * Clear stored products collection.
      * @returns {Promise<void>}
      */
     async function clearProductsCollection() {
