@@ -1,7 +1,7 @@
 /**
  * Native side panel UI with tool switcher (GetPhotos / GetProducts / Settings).
  * Collections persist in IndexedDB and survive browser restarts.
- * @version 3.3
+ * @version 3.5
  */
 
 const COPY_LINK_SUCCESS_MESSAGE = 'Ссылка скопирована в буфер обмена.';
@@ -863,6 +863,128 @@ function parseSalesValue(sales) {
     return value;
 }
 
+/** Side length (px) of the hover zoom panel next to a thumbnail. */
+const PREVIEW_ZOOM_SIZE = 300;
+/** How many times larger the image appears inside the zoom panel vs the thumbnail. */
+const PREVIEW_ZOOM_FACTOR = 2.75;
+/** Gap (px) between thumbnail and zoom panel. */
+const PREVIEW_ZOOM_GAP = 12;
+
+/** @type {HTMLElement|null} */
+let previewZoomEl = null;
+/** @type {boolean} */
+let previewZoomScrollBound = false;
+
+/**
+ * Create or reuse the fixed panel that shows an enlarged image region on thumbnail hover.
+ * @returns {HTMLElement}
+ */
+function getPreviewZoomEl() {
+    if (previewZoomEl && previewZoomEl.isConnected) {
+        return previewZoomEl;
+    }
+
+    previewZoomEl = document.createElement('div');
+    previewZoomEl.className = 'gp-preview-zoom gp-hidden';
+    previewZoomEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(previewZoomEl);
+
+    if (!previewZoomScrollBound) {
+        previewZoomScrollBound = true;
+        document.addEventListener('scroll', hidePreviewZoom, true);
+    }
+
+    return previewZoomEl;
+}
+
+/**
+ * Hide the thumbnail zoom panel and clear its background image.
+ */
+function hidePreviewZoom() {
+    if (!previewZoomEl) {
+        return;
+    }
+
+    previewZoomEl.classList.add('gp-hidden');
+    previewZoomEl.style.backgroundImage = '';
+}
+
+/**
+ * Place the zoom panel beside the thumbnail, keeping it inside the viewport.
+ * @param {DOMRect} thumbRect
+ * @param {HTMLElement} zoomEl
+ */
+function positionPreviewZoom(thumbRect, zoomEl) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = thumbRect.right + PREVIEW_ZOOM_GAP;
+    let top = thumbRect.top;
+
+    if (left + PREVIEW_ZOOM_SIZE > vw - 8) {
+        left = thumbRect.left - PREVIEW_ZOOM_GAP - PREVIEW_ZOOM_SIZE;
+    }
+    if (left < 8) {
+        left = 8;
+    }
+    if (top + PREVIEW_ZOOM_SIZE > vh - 8) {
+        top = vh - 8 - PREVIEW_ZOOM_SIZE;
+    }
+    if (top < 8) {
+        top = 8;
+    }
+
+    zoomEl.style.left = `${left}px`;
+    zoomEl.style.top = `${top}px`;
+}
+
+/**
+ * Show an enlarged crop next to a thumbnail; the crop follows the pointer over the preview.
+ * @param {HTMLImageElement} preview
+ */
+function enablePreviewZoom(preview) {
+    preview.classList.add('gp-preview--zoomable');
+
+    preview.addEventListener('mouseenter', () => {
+        const src = preview.currentSrc || preview.src;
+        if (!src) {
+            return;
+        }
+
+        const zoomEl = getPreviewZoomEl();
+        zoomEl.style.backgroundImage = `url(${JSON.stringify(src)})`;
+        zoomEl.style.backgroundSize = `${PREVIEW_ZOOM_FACTOR * 100}%`;
+        zoomEl.style.backgroundPosition = '50% 50%';
+        positionPreviewZoom(preview.getBoundingClientRect(), zoomEl);
+        zoomEl.classList.remove('gp-hidden');
+    });
+
+    preview.addEventListener('mousemove', (event) => {
+        if (!previewZoomEl || previewZoomEl.classList.contains('gp-hidden')) {
+            return;
+        }
+
+        const rect = preview.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+
+        previewZoomEl.style.backgroundPosition = `${x * 100}% ${y * 100}%`;
+        positionPreviewZoom(rect, previewZoomEl);
+    });
+
+    preview.addEventListener('mouseleave', hidePreviewZoom);
+}
+
+/**
+ * Build one image list row (preview, meta, copy/open/remove) for GetPhotos or product photos.
+ * @param {string} link
+ * @param {HTMLElement|null} status
+ * @param {() => void} onRemove
+ * @returns {HTMLLIElement}
+ */
 function createImageRow(link, status, onRemove) {
     const item = document.createElement('li');
     item.className = 'gp-item';
@@ -877,6 +999,7 @@ function createImageRow(link, status, onRemove) {
     preview.height = 100;
     preview.loading = 'lazy';
     preview.className = 'gp-preview';
+    enablePreviewZoom(preview);
 
     const content = document.createElement('div');
     content.className = 'gp-content';
